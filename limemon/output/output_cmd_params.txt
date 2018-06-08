@@ -1,0 +1,9 @@
+./LimeMon 
+
+LNAW Ch=0
+Freq 70.000 MHz
+time=500.000ms tsamp=0.512ms
+Rate=16.000 MS/s OSR=4 ADC=64.000MS/s CLKGEN=256.000MHz
+Gain=48dB
+LPF=10.000 MHz (RF)
+FFTW 256 bins, with Hann Window, NRpt=32

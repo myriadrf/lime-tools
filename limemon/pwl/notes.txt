@@ -1,0 +1,11 @@
+ant.txt, is half the loss between two antennas 10cm apart.
+It is intended for correcting frequency dependent loss of antenna.
+
+lnaw.txt is the approx output dBFS with -50dBm input, and RX gain set to 48
+lnah.txt is the approx output dBFS with -50dBm input, and RX gain set to 48
+-50dBm, 48dB gain ==> -2dBFS
+pwk-gain+k= input signal level at antenna.
+
+We need to normalise these to gain and input.
+
+pwl f0:f:f1 mx + c

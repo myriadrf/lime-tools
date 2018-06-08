@@ -1,0 +1,9 @@
+./LimeScan -f 800M:833M -C 0 -A LNAW -w 35M -r 16M -OSR 8 -b 256 -g 48.0 -n 16 
+
+LNAW Ch=0
+Freq Range 800.000:833.000 MHz
+Rate=16.000 Ms/s OSR=8
+512.000000
+Gain=48dB
+LPF=35.000 MHz (RF)
+FFTW 256 bins, with Hann Window, NRpt=16
