@@ -4,10 +4,13 @@ A collection of simple, useful tools for use with LimeSDR hardware.
 
 ## Contents
 
-The directory structure is as follows:
+### LimeMon
 
-      limemon/                       - Min, max, rms power sweep measurements vs. frequency and time in .csv, .xls and .gif format
-      limescan/                      - Power spectrum tool that aims to be compatible with rtl_power and soapy_power
+Min, max, rms power sweep measurements vs. frequency and time in .csv, .xls and .gif format.
+
+### LimeScan
+
+Power spectrum tool that aims to be compatible with rtl_power and soapy_power.
 
 ## Licensing
 
