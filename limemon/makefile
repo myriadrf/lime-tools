@@ -18,7 +18,7 @@ CCFLAGS := -Ofast -march=native
 CCFLAGS += -ftree-vectorize
 CCFLAGS += -funsafe-math-optimizations
 #CCFLAGS += -fopt-info-vec-optimized
-CCFLAGS += -Wall
+#CCFLAGS += -Wall
 CC := g++
 LDFLAGS :=
 LD := g++

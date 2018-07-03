@@ -13,29 +13,43 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-// test case - pipe output, boundary post c
-// ./LimeScan -f 800M:832M -C 0 -A "LNAW" -w 35M -r 16M -OSR 16 -b 256 -g 48.0 -n 16 | tail -10 > log.txt
-// ./LimeScan -f 800M:831M -C 0 -A "LNAW" -w 35M -r 16M -OSR 16 -b 256 -g 48.0 -n 16 | tail -10 > log.txt
-// ./LimeScan -f 800M:833M -C 0 -A "LNAW" -w 35M -r 16M -OSR 16 -b 256 -g 48.0 -n 16 | tail -15 > log.txt
-// ./LimeScan -f 834M:883M -C 0 -A "LNAW" -w 35M -r 16M -OSR 8 -b 256 -g 48.0 -n 16 -Tst -50 | tail -15 > log.txt
+
+// use only one of of the following
+//#define USE_C99_COMPLEX 1 // assumes fftw_complex maps to C99 double _Complex (Ubuntu)
+#define USE_FFTW_COMPLEX 2 // assumes typedef double fftw_complex[2]; (Raspberry Pi)
+// cannot easily see how we can automatically detect correct type from <fftw3.h>
+// Assume FFTW incompatibility with C99 on Raspberry Pi is temporary
+// - see 4.1.1 of fftw3.pdf on C99 compatibility with FFTW3
+
+//#define USE_GNUPLOT 0 // comment out to disable GNUPLOT 3D graphs
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <complex.h> // double _Complex compliant with double, fftw_complex[2]; // [0] real, [1] imaginary
-#include <fftw3.h>
+#ifdef USE_C99_COMPLEX
+#include <complex.h> // double _Complex, compliant with double, fftw_complex[2] Re=0, Im=1
+#include <fftw3.h>  // should come after complex.h
+#endif
+#ifdef USE_FFTW_COMPLEX
+#include <fftw3.h>  // Do before complex.h to force typedef double fftw_complex[2]
+#include <complex.h> 
+#endif
 #include <unistd.h> // pipes usleep
 #include <fcntl.h> // file control
 #include <sys/types.h> // pipes
 #include <sys/stat.h> // mkdir
 #include <time.h> // tools for telling the time!
 #include <errno.h> // EPERM etc
-#include "lime/LimeSuite.h"
+#include "LimeSuite.h"
+
+#define PI 3.14159265
+#define PI2 (2*PI)
+
 
 using namespace std;
 
-void DecodeArg( int argc, char *argv[] );
+void DecCmdLine( int argc, char *argv[] );
 void Init( void );
 void OpenSDR( void );
 void Scan( void );
@@ -51,42 +65,48 @@ char* ReadTil( char *buffer, char word[] );
 void ReadSubWord(char word[],char subWord[],int pos,int len);
 void ReadGPRMC( char *buffer );
 
-// global control variables
+// default global control variables
 float frq_min=800.0e6; // 800 MHz
 float frq_max=1000.0e6; // 1000 MHz
 float frq_step=16.0e6; // 16 MHz
 float frq=0.0;
-float frq_LPF=3.0e6; // ifbandwidth of LimeSDR
+float frq_LPF=3.0e6; // IF bandwidth of LimeSDR
 float frq_Samp=16.0e6; // USB Sample Rate for LimeSDR
 float frq_Tic=10.0;
-unsigned char OSR=4;
-unsigned int gaindB=48; //gain in dB - has to be int for library compatibility
-unsigned char Ch=0;
-unsigned int NFFT=256;
-unsigned int NRpt=16;
+unsigned char OSR=4; // ADC runs faster than USB rate.
+unsigned int gaindB=48; // gain in dB 0:73 - int for library compatibility
+unsigned char Ch=0; // SDR Channel number. 0:1
+unsigned int NFFT=256; // default number of FFT bins
+unsigned int NRpt=16; // number of repeat reads for RMS integration
+char LNAnum=3; // off - use default
 // private global variables
+char fNameStem[50]="output"; // default output location
 unsigned int NUSB=1420*10; // number of samples read per USB packet
-unsigned int Nlat=NUSB/NFFT+((NUSB%NFFT)>0); // ceil(USBsize/FFTsize)
+unsigned int Nlat=NUSB/NFFT+((NUSB%NFFT)>0); // ceil(NUSB/NFFT)
 unsigned int fCnt;
 lms_device_t* device=NULL; // SDR device
 lms_stream_t streamId; // SDR stream
-char fNameStem[50]="output";
-fftw_plan pfft;
+double *win=NULL; // hamming window coefficients
+#ifdef USE_C99_COMPLEX
 double _Complex *in=NULL; // registered with FFTW
 double _Complex *out=NULL; // registered with FFTW
-double *win=NULL; // hamming window coefficients
+#endif
+#ifdef USE_FFTW_COMPLEX
+fftw_complex *in=NULL;
+fftw_complex *out=NULL;
+#endif
+fftw_plan pfft; // FFTW
 time_t *swpTime;
-double **fmat; // freq values for interpolation with pwl
+double **fmat; // freq values for interpolation with pwl (MHz)
 double **zrms; // average data
 double **zmin; // min data
 double **zmax; // max data
 double RNFFTdB;
-char LNAnum=0; // off - use default
 char gpsPath[20]="/dev/ttyACM0";
 unsigned char doGPS=0; // 0=don't 1=do
-unsigned int tstLvl=-50;
+unsigned int tstLvl=-50; // for optional test signal
 double tstFrq=860e6; // 860MHz is an amature band, dont want to jam sensitive bands
-unsigned char doTst=0; // 0=don't 1=do
+unsigned char doTst=0; // 0=don't 1=do, test signal defaul off.
 
 char doPwlLNAW=0;
 char doPwlLNAH=0;
@@ -104,69 +124,77 @@ int main( int argc, char *argv[] )
 	double mPwl[255];
 	double cPwl[255];
 	char fname[100];
-	DecodeArg(argc,argv);
+	DecCmdLine(argc,argv);
 	if( doGPS>0 )
 		ReadNMEAtraffic( gpsPath );
 	Init();
 	OpenSDR();
 	Scan();
 	CloseSDR();
-	if( doPwlLNAW>0 )
-	{
-		nPwl=ReadPwl( fPwlLNAW,xPwl,mPwl,cPwl );
-		ApplyPwl( zrms,xPwl,mPwl,cPwl,nPwl );
-		ApplyPwl( zmin,xPwl,mPwl,cPwl,nPwl );
-		ApplyPwl( zmax,xPwl,mPwl,cPwl,nPwl );
-	}
-	if( doPwlLNAH>0 )
-	{
+	if( (doPwlLNAH>0) && (LNAnum==1) ) // Apply PWL corrections
+	{ // block pwl if for wrong LNA
 		nPwl=ReadPwl( fPwlLNAH,xPwl,mPwl,cPwl );
 		ApplyPwl( zrms,xPwl,mPwl,cPwl,nPwl );
 		ApplyPwl( zmin,xPwl,mPwl,cPwl,nPwl );
 		ApplyPwl( zmax,xPwl,mPwl,cPwl,nPwl );
 	}
-	if( doPwlLNAL>0 )
+	if( (doPwlLNAL>0) && (LNAnum==2) )
 	{
 		nPwl=ReadPwl( fPwlLNAL,xPwl,mPwl,cPwl );
 		ApplyPwl( zrms,xPwl,mPwl,cPwl,nPwl );
 		ApplyPwl( zmin,xPwl,mPwl,cPwl,nPwl );
 		ApplyPwl( zmax,xPwl,mPwl,cPwl,nPwl );
 	}
-	if( doPwlAnt>0 )
+	if( (doPwlLNAW>0) && (LNAnum==3) ) 
+	{
+		nPwl=ReadPwl( fPwlLNAW,xPwl,mPwl,cPwl );
+		ApplyPwl( zrms,xPwl,mPwl,cPwl,nPwl );
+		ApplyPwl( zmin,xPwl,mPwl,cPwl,nPwl );
+		ApplyPwl( zmax,xPwl,mPwl,cPwl,nPwl );
+	}
+	if( (doPwlAnt>0) )
 	{
 		nPwl=ReadPwl( fPwlAnt,xPwl,mPwl,cPwl );
 		ApplyPwl( zrms,xPwl,mPwl,cPwl,nPwl );
 		ApplyPwl( zmin,xPwl,mPwl,cPwl,nPwl );
 		ApplyPwl( zmax,xPwl,mPwl,cPwl,nPwl );
-	}
+	} // display results	sprintf(fname,"%sRMS",fNameStem);
 	sprintf(fname,"%sRMS",fNameStem);
 	GnuPlotDispAndSave( fname,zrms ); // average
 	sprintf(fname,"%sMin",fNameStem);
 	GnuPlotDispAndSave( fname,zmin ); // max
 	sprintf(fname,"%sPk",fNameStem);
 	GnuPlotDispAndSave( fname,zmax ); // min
+#ifdef USE_GNUPLOT
 	sprintf(fname,"%s/%sRMS.gif",fNameStem,fNameStem);
-	DisplayBinFile( fname );// do we get multiple windows, or updated window?
+	DisplayBinFile( fname ); // provides updated window
 //	sprintf(fname,"%s/%sPk.gif",fNameStem,fNameStem);
-//	DisplayBinFile( fname );// do we get multiple windows, or updated window?
+//	DisplayBinFile( fname );
 //	sprintf(fname,"%s/%sMin.gif",fNameStem,fNameStem);
-//	DisplayBinFile( fname );// do we get multiple windows, or updated window?
+//	DisplayBinFile( fname );
+#endif
 	ShutDown();
 	return(0);
 }
 
 void Init( void )
-{
+{ // memory allocation and frequency settings
 	unsigned int ci;
-	swpTime=(time_t*)malloc(sizeof(time_t)*NFFT);
+#ifdef USE_C99_COMPLEX
 	in=(double _Complex *) fftw_malloc(sizeof(double _Complex)*NFFT); // align for SIMD
 	out=(double _Complex *) fftw_malloc(sizeof(double _Complex)*NFFT); // align for SIMD
+#endif
+#ifdef USE_FFTW_COMPLEX
+	in=(fftw_complex *) fftw_malloc(sizeof(fftw_complex)*NFFT); // align for SIMD
+	out=(fftw_complex *) fftw_malloc(sizeof(fftw_complex)*NFFT); // align for SIMD
+#endif
 	win=(double *)malloc(sizeof(double)*NFFT);
 	frq_step=frq_Samp;
 	frq_min+=frq_step/2;
 	frq_max-=frq_step/2;
 	fCnt=ceil((frq_max-frq_min)/frq_step)+1;
 	printf("fCnt=%i\n",fCnt);
+	swpTime=(time_t*)malloc(sizeof(time_t)*fCnt); // was NFFT
 	fmat=(double**)malloc(sizeof(double*)*fCnt);
 	zrms=(double**)malloc(sizeof(double*)*fCnt);
 	zmin=(double**)malloc(sizeof(double*)*fCnt);
@@ -178,17 +206,17 @@ void Init( void )
 		zmin[ci]=(double*)malloc(sizeof(double)*NFFT);
 		zmax[ci]=(double*)malloc(sizeof(double)*NFFT);
 	}
-	for(ci=0;ci<NFFT;ci++)
-		win[ci]=1-cos((2*3.141592*ci)/(NFFT-1)); // Hann
-//		win[ci]=25.0/46.0-(1-25.0/46.0)*cos((2*3.141592*ci)/(NFFT-1)); // Hamming
-//		win[ci]=0.355768-0.487396*cos((2*3.141592*ci)/(NFFT-1))+0.144232*cos((4*3.141592*ci)/(NFFT-1))-0.012604*cos((6*3.141592*ci)/(NFFT-1)); // Nutall
-//		win[ci]=0.3635819-0.4891775*cos((2*3.141592*ci)/(NFFT-1))+0.1365995*cos((4*3.141592*ci)/(NFFT-1))-0.0106411*cos((6*3.141592*ci)/(NFFT-1)); // Blackman Nutall
-//		win[ci]=0.35875-0.48829*cos((2*3.141592*ci)/(NFFT-1))+0.14128*cos((4*3.141592*ci)/(NFFT-1))-0.01168*cos((6*3.141592*ci)/(NFFT-1)); // Blackman Harris
+	for(ci=0;ci<NFFT;ci++) // calcualte Windowing function coefficients
+		win[ci]=1-cos((PI2*ci)/(NFFT-1)); // Hann
+//		win[ci]=25.0/46.0-(1-25.0/46.0)*cos((PI2*ci)/(NFFT-1)); // Hamming
+//		win[ci]=0.355768-0.487396*cos((PI2*ci)/(NFFT-1))+0.144232*cos((2*PI2*ci)/(NFFT-1))-0.012604*cos((3*PI2*ci)/(NFFT-1)); // Nutall
+//		win[ci]=0.3635819-0.4891775*cos((PI2*ci)/(NFFT-1))+0.1365995*cos((2*PI2*ci)/(NFFT-1))-0.0106411*cos((3*PI2*ci)/(NFFT-1)); // Blackman Nutall
+//		win[ci]=0.35875-0.48829*cos((PI2*ci)/(NFFT-1))+0.14128*cos((2*PI2*ci)/(NFFT-1))-0.01168*cos((3*PI2*ci)/(NFFT-1)); // Blackman Harris
 	pfft=fftw_plan_dft_1d(NFFT,in,out,FFTW_FORWARD,FFTW_ESTIMATE);
 }
 
 void ShutDown( void )
-{ // clean out the trash
+{ // deallocate memory, and other good house keeping
 	unsigned int ci;
 	for(ci=0;ci<fCnt;ci++)
 	{
@@ -204,13 +232,141 @@ void ShutDown( void )
 	fftw_free(out);
 }
 
+void OpenSDR( void )
+{ // software based SDR set up, allows use with LimeSDR and LimeSDRmini.
+	int n; // Find devices
+	int ci=0;
+	unsigned int gaindBTx;
+	float_type rate=frq_Samp;
+	float_type rf_rate=frq_Samp*OSR;
+	float_type gain; 
+    lms_name_t antenna_list[10]; // large enough list for antenna names.
+	if((n=LMS_GetDeviceList(NULL))<0) // Pass NULL to only obtain number of devices
+		error();
+	printf("Devices found: %i \n",n);
+	if(n<1)
+		error();
+	lms_info_str_t* list = new lms_info_str_t[n]; // allocate device list storage
+	if(LMS_GetDeviceList(list)<0)
+		error();
+	for(ci=0;ci<n;ci++) // print device list
+		printf("%i:%s\n",ci,list[ci]);
+	if(LMS_Open(&device,list[0],NULL)) //Open the first device
+		error();
+	delete [] list;
+    // Initialize device with default configuration
+    // Use LMS_LoadConfig(device, "/path/to/file.ini") to load config from INI
+    if(LMS_Init(device) != 0)
+        error();
+    if(LMS_EnableChannel(device, LMS_CH_RX,Ch,true)!=0) // Rx, Channels 0:(N-1)
+        error();
+     if(LMS_SetLOFrequency(device, LMS_CH_RX,Ch,frq_min)!=0)
+        error();
+	// Alternatively, NULL can be passed to LMS_GetAntennaList() to obtain antennae num
+	if((n = LMS_GetAntennaList(device, LMS_CH_RX, 0, antenna_list)) < 0)
+		error();
+	printf("Ae:\n"); // print available antennae names
+	for(ci = 0; ci < n; ci++)
+		printf(" %i:%s",ci,antenna_list[ci]);
+	if((n = LMS_GetAntenna(device, LMS_CH_RX, Ch)) < 0) // get selected antenna index
+		error();
+	printf("\nDefault: %i:%s, ",n,antenna_list[n]);
+	if( LNAnum==1 )
+		if(LMS_SetAntenna(device, LMS_CH_RX, Ch, LMS_PATH_LNAH) != 0) 
+			error();
+	if( LNAnum==2 )
+		if(LMS_SetAntenna(device, LMS_CH_RX, Ch, LMS_PATH_LNAL) != 0) 
+			error();
+	if( LNAnum==3 ) 
+		if(LMS_SetAntenna(device, LMS_CH_RX, Ch, LMS_PATH_LNAW) != 0) 
+			error();
+	if((n = LMS_GetAntenna(device, LMS_CH_RX, Ch)) < 0) // get selected antenna index
+		error();
+	printf("Selected: %i:%s\n",n,antenna_list[n]);
+    if(LMS_SetSampleRate(device,frq_Samp,OSR) != 0) // oversampling in RF OSR x sample rate
+        error();
+	if(LMS_GetSampleRate(device, LMS_CH_RX, 0, &rate, &rf_rate) != 0)  // can pass NULL
+		error();
+	printf("\nUSB rate: %f MS/s, ADC rate: %fMS/s\n", rate*1.0e-6, rf_rate*1.0e-6);
+    //Example of getting allowed parameter value range
+    //There are also functions to get other parameter ranges (check LimeSuite.h)
+	lms_range_t range; //Get allowed LPF bandwidth range
+	if(LMS_GetLPFBWRange(device,LMS_CH_RX,&range)!=0)
+		error(); // RX LPF range: 1.400100 - 130.000000 MHz
+//	printf("RX LPF bandwitdh range: %f - %f MHz\n", range.min*1.0e-6,range.max*1.0e-6);   
+	if(LMS_SetLPFBW(device, LMS_CH_RX, Ch, frq_step)!=0)  //Configure LPF, bandwidth 8 MHz
+		error(); 
+	if(LMS_SetNormalizedGain(device,LMS_CH_RX,Ch,gaindB/73.0)!=0) //Set RX gain
+		error();
+	int err=0;
+	if(LMS_SetGaindB(device,LMS_CH_RX,Ch,gaindB)!=0) // 0:73
+	{
+		printf("Ch=%i gaindB=%i err=%i\n",Ch,gaindB,err);
+		error();
+	}
+	if(LMS_GetNormalizedGain(device,LMS_CH_RX,Ch,&gain)!=0) //normalized gain
+		error();
+	if(LMS_GetGaindB(device,LMS_CH_RX,Ch,&gaindB)!=0)
+		error();
+	printf("Normalized RX Gain: %f, RX Gain: %i dB\n",gain,gaindB);
+	if(LMS_Calibrate(device,LMS_CH_RX,Ch,frq_step,0)!=0)
+		error();
+	if( doTst>0 )
+	{ // optional TX test signal
+		if(LMS_EnableChannel(device,LMS_CH_TX,Ch,true)!=0)
+			error();
+		if(LMS_SetAntenna(device,LMS_CH_TX,Ch,LMS_PATH_TX1)!=0) 
+			error();
+		if(LMS_SetLOFrequency(device,LMS_CH_TX,Ch,tstFrq)!=0)
+			error();
+		if(LMS_SetTestSignal(device,LMS_CH_TX,Ch,LMS_TESTSIG_NCODIV8,0,0)!=0)
+			error(); // freq offset = rate/NCODIV
+		if(LMS_SetLPFBW(device,LMS_CH_TX,Ch,16.0E6)!=0)
+			error(); // TX LPF range: 1.400100 - 130.000000 MHz
+		if(LMS_SetGaindB(device,LMS_CH_TX,Ch,(79+tstLvl))!= 0) // 0:73
+			error(); //tstLvl
+		if(LMS_GetNormalizedGain(device,LMS_CH_TX,Ch,&gain)!=0) //normalized gain
+			error();
+		if(LMS_GetGaindB(device,LMS_CH_TX,Ch,&gaindBTx)!=0)
+			error();
+		printf("Normalized TX Gain: %f, TX Gain: %i dB\n",gain,gaindBTx);
+		if(LMS_Calibrate(device,LMS_CH_TX,Ch,frq_step,0)!=0)
+			error();
+	}
+	streamId.channel=Ch; //channel number
+	streamId.fifoSize=1024*1024; //fifo size in samples
+	streamId.throughputVsLatency=1.0; //optimize for max throughput
+	streamId.isTx=false; //RX channel
+	streamId.dataFmt=lms_stream_t::LMS_FMT_F32; //32-bit floats
+	if(LMS_SetupStream(device,&streamId)!=0)
+		error();
+	LMS_StartStream(&streamId);
+}
+
+void CloseSDR( void )
+{
+	if(LMS_EnableChannel(device,LMS_CH_TX,Ch,false)!=0)
+		error();
+	if(LMS_SetGaindB(device,LMS_CH_TX,Ch,0)!= 0) // 0:73
+		error(); // switch off Tx so not to interfere.
+	LMS_StopStream(&streamId); // stream is stopped, start again with LMS_StartStream()
+	LMS_DestroyStream(device, &streamId); //stream can no longer be used
+	LMS_Close(device);
+}
+
+int error( void )
+{
+	printf("LimeSDR: ERROR\n");
+	if(device!=NULL)
+		LMS_Close(device);
+	exit(-1);
+}
 void Scan( void )
 {
 	int samplesRead;
 	unsigned int ci,cf,ct;
-	float _Complex *buf=(float _Complex*)malloc(sizeof(float _Complex)*NFFT); // for LimeSDR interface
+	float _Complex *buf=(float _Complex*)malloc(sizeof(float _Complex)*NFFT); // LimeSDR 
 	float *mb[4]; // 0 mag, 1 min mag, 2 max mag, 3 rms mag, do in vector form for speed
-	char fname[100];
 	unsigned int NFFTd2=NFFT>>1;
 	float RNRptdB=-10*log10(NRpt); // divide Sum( mag^2 )/NRpt in dBs
 	float RNFFTdB=-20*log10(NFFT); // divide by NFFT in dBs
@@ -222,7 +378,7 @@ void Scan( void )
 		frq=frq_min+cf*frq_step;
 		if(LMS_SetLOFrequency(device,LMS_CH_RX,0,frq)!= 0)
 			error();
-		usleep(100000); // flush old data was 100us
+		usleep(100000); // flush old data, was 100us
 		for( ci=0;ci<NFFT;ci++) // vectorized
 		{ // SIMD vector reset
 			mb[0][ci]=0.0; // now
@@ -233,16 +389,29 @@ void Scan( void )
 		for( ct=0; ct<NRpt; ct++ )
 		{
 			swpTime[cf]=time(NULL);
-//			for(ci=0;ci<Nlat;ci++) // discard latency data from prev freq - NOT WORKING
-//				samplesRead=LMS_RecvStream(&streamId,buf,NFFT,NULL,NFFT);
 			samplesRead=LMS_RecvStream(&streamId,buf,NFFT,NULL,NFFT);
-			for(ci=0;ci<NFFT;ci++) // copy SDR buffer to FFTW and apply window (Vectorized)
+#ifdef USE_C99_COMPLEX
+			for(ci=0;ci<NFFT;ci++) // copy SDR buffer to FFTW and window (Vectorized)
 				in[ci]=buf[ci]*win[ci];
+#endif
+#ifdef USE_FFTW_COMPLEX
+			for(ci=0;ci<NFFT;ci++) // copy SDR buffer to FFTW and window (Vectorized)
+			{
+				in[ci][0]=creal(buf[ci])*win[ci];
+				in[ci][1]=cimag(buf[ci])*win[ci];
+			}
+#endif
 			fftw_execute(pfft);
 			for( ci=0;ci<NFFT;ci++) // vectorized
 			{
+#ifdef USE_C99_COMPLEX
 				mb[0][ci]=creal(out[ci]*conj(out[ci]));
 				mb[1][ci]+=creal(out[ci]*conj(out[ci]));
+#endif
+#ifdef USE_FFTW_COMPLEX
+				mb[0][ci]=out[ci][0]*out[ci][0]+out[ci][1]*out[ci][1];
+				mb[1][ci]+=out[ci][0]*out[ci][0]+out[ci][1]*out[ci][1];
+#endif
 			}
 			for( ci=0;ci<NFFT;ci++) // vectorized
 			{
@@ -251,15 +420,15 @@ void Scan( void )
 			}
 		}
 		for(ci=0;ci<NFFT;ci++) // freq matrix for pwl scaling
-			fmat[cf][ci]=frq+ci*RFstep-(frq_Samp/2);
+			fmat[cf][ci]=(frq+ci*RFstep-(frq_Samp/2))*1.0e-6; // MHz
 		for(ci=0;ci<NFFTd2;ci++) // Include FFT pos/neg swap
 		{
-			zrms[cf][ci+NFFTd2]=10*log10(mb[1][ci]+1e-20)+RNFFTdB+RNRptdB; // divide by NFFT
-			zrms[cf][ci]=10*log10(mb[1][ci+NFFTd2]+1e-20)+RNFFTdB+RNRptdB; // divide by NFFT
-			zmin[cf][ci+NFFTd2]=10*log10(mb[2][ci]+1e-20)+RNFFTdB; // divide by NFFT
-			zmin[cf][ci]=10*log10(mb[2][ci+NFFTd2]+1e-20)+RNFFTdB; // divide by NFFT
-			zmax[cf][ci+NFFTd2]=10*log10(mb[3][ci]+1e-20)+RNFFTdB; // divide by NFFT
-			zmax[cf][ci]=10*log10(mb[3][ci+NFFTd2]+1e-20)+RNFFTdB; // divide by NFFT
+			zrms[cf][ci+NFFTd2]=10*log10(mb[1][ci]+1e-20)+RNFFTdB+RNRptdB-gaindB; // /NFFT
+			zrms[cf][ci]=10*log10(mb[1][ci+NFFTd2]+1e-20)+RNFFTdB+RNRptdB-gaindB; // /NFFT
+			zmin[cf][ci+NFFTd2]=10*log10(mb[2][ci]+1e-20)+RNFFTdB-gaindB; // /NFFT
+			zmin[cf][ci]=10*log10(mb[2][ci+NFFTd2]+1e-20)+RNFFTdB-gaindB; // /NFFT
+			zmax[cf][ci+NFFTd2]=10*log10(mb[3][ci]+1e-20)+RNFFTdB-gaindB; // /NFFT
+			zmax[cf][ci]=10*log10(mb[3][ci+NFFTd2]+1e-20)+RNFFTdB-gaindB; // /NFFT
 		}
 	}
 	for( ci=0;ci<4;ci++)
@@ -272,37 +441,10 @@ void GnuPlotDispAndSave( char *fName,double **zz )
 	unsigned int ci,cj;
 	char fname[100];
 	FILE *ftdv, *fcsv;
-	FILE *GpPipe;
-/*	GpPipe=popen("gnuplot","w"); // init GnuPlot Pipe
-	fprintf(GpPipe,"set term gif\n");
-	fprintf(GpPipe,"set output \"%s/%s.gif\"\n",fNameStem,fName);
-	fprintf(GpPipe,"set grid\n");
-	fprintf(GpPipe,"set surface\n"); // not required?
-//	fprintf(GpPipe,"set view 10,340\n");
-//	fprintf(GpPipe,"set xrange [0:10]\n");
-//	fprintf(GpPipe,"set yrange [0:10]\n");
-	fprintf(GpPipe,"set zrange [-90:0]\n");
-	fprintf(GpPipe,"set pm3d\n"); // add map for heat map
-//	fprintf(GpPipe,"set palette defined (-1 \"blue\", 0 \"green\", 1 \"yellow\", 2 \"red\")\n");
-//	fprintf(GpPipe,"set palette defined (-3 \"dark-green\", -2 \"green\", -1 \"cyan\", 0 \"blue\", 1 \"purple\", 2 \"red\", 3 \"orange\", 4 \"white\")\n");
-	fprintf(GpPipe,"set palette defined (-5 \"black\",-4 \"dark-green\",-3 \"forest-green\", -2 \"green\", -1 \"sea-green\", 0 \"cyan\", 1 \"blue\", 2 \"purple\", 3 \"pink\",4 \"red\", 5 \"orange\", 6 \"yellow\", 7 \"white\")\n");
-//	fprintf(GpPipe,"set palette defined ( 0 0 0 0, 1 1 1 1 )\n"); // grey scale
-//	fprintf(GpPipe,"set palette defined ( 0 0 0 0, 1 0 1 1 )\n"); // cyan scale
-	fprintf(GpPipe,"set hidden3d\n");
-	fprintf(GpPipe,"set contour base\n"); // base surface both
-	fprintf(GpPipe,"splot '-' matrix with lines title 'ch 1'\n");
-	for(ci=0;ci<NY;++ci)
-	{ // 2-D table of z values (matrix format)
-		for(cj=0;cj<NFFT;++cj)
-			fprintf(GpPipe,"%f ",zz[ci][cj]);
-		fprintf(GpPipe,"\n");
-	}
-	fprintf(GpPipe,"e\n");
-	fflush(GpPipe);
-	pclose(GpPipe); // kill gnuplot process! */
-	
 	float fftsf=(frq_Samp*1.0e-6)/NFFT;
 	float frq=frq_min;
+	FILE *GpPipe;
+#ifdef USE_GNUPLOT
 	GpPipe=popen("gnuplot","w"); // init GnuPlot Pipe
 	fprintf(GpPipe,"set term gif\n");
 	fprintf(GpPipe,"set output \"%s/%s.gif\"\n",fNameStem,fName);
@@ -311,7 +453,7 @@ void GnuPlotDispAndSave( char *fName,double **zz )
 //	fprintf(GpPipe,"set view 10,340\n");
 //	fprintf(GpPipe,"set xrange [0:10]\n");
 //	fprintf(GpPipe,"set yrange [0:10]\n");
-	fprintf(GpPipe,"set zrange [-90:0]\n");
+//	fprintf(GpPipe,"set zrange [-90:0]\n");
 	fprintf(GpPipe,"set pm3d\n"); // add map for heat map
 	fprintf(GpPipe,"set xlabel \"FFT Band MHz\"\n");
 	fprintf(GpPipe,"set ylabel \"FFT Center MHz\"\n");
@@ -335,9 +477,9 @@ void GnuPlotDispAndSave( char *fName,double **zz )
 	fprintf(GpPipe,"e\n");
 	fflush(GpPipe);
 	pclose(GpPipe); // kill gnuplot process!
-	
+#endif	
 	sprintf( fname, "%s/%s.xls",fNameStem,fName); 
-	ftdv=fopen(fname,"w"); // standard xls tab delimited variable "\t"
+	ftdv=fopen(fname,"w"); // standard xls tab delimited variable "\t" format
 	fprintf(ftdv,"\t\t");
 	for(cj=0;cj<NFFT;++cj)
 		fprintf(ftdv,"\t%i",cj);
@@ -353,7 +495,7 @@ void GnuPlotDispAndSave( char *fName,double **zz )
 
 	sprintf( fname, "%s/%s.csv",fNameStem,fName);
 	if( strcmp( fNameStem,"output")!=0 )
-		fcsv=fopen(fname,"w"); // "soapy power" style csv ", "
+		fcsv=fopen(fname,"w"); // "soapy power" style csv ", " format
 	else
 		fcsv=stdout;
 	fprintf(fcsv,"%s\n",fname);
@@ -375,137 +517,7 @@ void GnuPlotDispAndSave( char *fName,double **zz )
 		fclose(fcsv);
 }
 
-void OpenSDR( void )
-{
-	int n; //Find devices
-	int ci=0;
-	float_type rate=frq_Samp;
-	float_type rf_rate=frq_Samp*OSR;
-	float_type gain; 
-    lms_name_t antenna_list[10]; //large enough list for antenna names.
-	if((n=LMS_GetDeviceList(NULL))<0) // Pass NULL to only obtain number of devices
-		error();
-	printf("Devices found: %i \n",n);
-	if(n<1)
-		error();
-	lms_info_str_t* list = new lms_info_str_t[n]; // allocate device list storage
-	if(LMS_GetDeviceList(list)<0)
-		error();
-	for(ci=0;ci<n;ci++) // print device list
-		printf("%i:%s\n",ci,list[ci]);
-	if(LMS_Open(&device,list[0],NULL)) //Open the first device
-		error();
-	delete [] list;
-    //Initialize device with default configuration
-    //Use LMS_LoadConfig(device, "/path/to/file.ini") to load config from INI
-    if(LMS_Init(device) != 0)
-        error();
-    if(LMS_EnableChannel(device, LMS_CH_RX,Ch,true)!=0) // Rx, Channels 0:(N-1)
-        error();
-     if(LMS_SetLOFrequency(device, LMS_CH_RX,Ch,frq_min)!=0)
-        error();
-	//Alternatively, NULL can be passed to LMS_GetAntennaList() to obtain number of antennae
-	if((n = LMS_GetAntennaList(device, LMS_CH_RX, 0, antenna_list)) < 0)
-		error();
-	printf("Ae:\n"); //print available antennae names
-	for(ci = 0; ci < n; ci++)
-		printf(" %i:%s",ci,antenna_list[ci]);
-	if((n = LMS_GetAntenna(device, LMS_CH_RX, Ch)) < 0) //get currently selected antenna index
-		error();
-	printf("\nDefault: %i:%s, ",n,antenna_list[n]);
-	if( LNAnum==1 ) // manually select antenna
-		if(LMS_SetAntenna(device, LMS_CH_RX, Ch, LMS_PATH_LNAH) != 0) 
-			error();
-	if( LNAnum==2 ) // manually select antenna
-		if(LMS_SetAntenna(device, LMS_CH_RX, Ch, LMS_PATH_LNAL) != 0) 
-			error();
-	if( LNAnum==3 ) // manually select antenna
-		if(LMS_SetAntenna(device, LMS_CH_RX, Ch, LMS_PATH_LNAW) != 0) 
-			error();
-	if((n = LMS_GetAntenna(device, LMS_CH_RX, Ch)) < 0) //get currently selected antenna index
-		error();
-	printf("Selected: %i:%s\n",n,antenna_list[n]);
-    if(LMS_SetSampleRate(device,frq_Samp,OSR) != 0) // oversampling in RF OSR x sample rate
-        error();
-	if(LMS_GetSampleRate(device, LMS_CH_RX, 0, &rate, &rf_rate) != 0)  // NULL can be passed
-		error();
-	printf("\nUSB rate: %f MS/s, ADC rate: %fMS/s\n", rate*1.0e-6, rf_rate*1.0e-6);
-    //Example of getting allowed parameter value range
-    //There are also functions to get other parameter ranges (check LimeSuite.h)
-	lms_range_t range; //Get allowed LPF bandwidth range
-	if(LMS_GetLPFBWRange(device,LMS_CH_RX,&range)!=0)
-		error(); // RX LPF range: 1.400100 - 130.000000 MHz
-//	printf("RX LPF bandwitdh range: %f - %f MHz\n", range.min*1.0e-6,range.max*1.0e-6);   
-	if(LMS_SetLPFBW(device, LMS_CH_RX, Ch, frq_step)!=0)  //Configure LPF, bandwidth 8 MHz
-		error(); 
-	if(LMS_SetNormalizedGain(device,LMS_CH_RX,Ch,gaindB/73.0)!=0) //Set RX gain
-		error();
-	int err=0;
-	if(LMS_SetGaindB(device,LMS_CH_RX,Ch,gaindB)!=0) // 0:73 breaks
-	{
-		printf("Ch=%i gaindB=%i err=%i\n",Ch,gaindB,err);
-		error();
-	}
-	if(LMS_GetNormalizedGain(device,LMS_CH_RX,Ch,&gain)!=0) //normalized gain
-		error();
-	if(LMS_GetGaindB(device,LMS_CH_RX,Ch,&gaindB)!=0)
-		error();
-	printf("Normalized RX Gain: %f, RX Gain: %i dB\n",gain,gaindB);
-	if(LMS_Calibrate(device,LMS_CH_RX,Ch,frq_step,0)!=0)
-		error();
-	// optional TX test signal
-	if( doTst>0 )
-	{
-		if(LMS_EnableChannel(device,LMS_CH_TX,Ch,true)!=0)
-			error();
-		if(LMS_SetAntenna(device,LMS_CH_TX,Ch,LMS_PATH_TX1)!=0) 
-			error();
-		if(LMS_SetLOFrequency(device,LMS_CH_TX,Ch,tstFrq)!=0)
-			error();
-		if(LMS_SetTestSignal(device,LMS_CH_TX,Ch,LMS_TESTSIG_NCODIV8,0,0)!=0)
-			error(); // freq offset = rate/NCODIV
-		if(LMS_SetLPFBW(device,LMS_CH_TX,Ch,16.0E6)!=0)
-			error(); // TX LPF range: 1.400100 - 130.000000 MHz
-		if(LMS_SetGaindB(device,LMS_CH_TX,Ch,(79+tstLvl))!= 0) // 0:73
-			error(); //tstLvl
-		if(LMS_GetNormalizedGain(device,LMS_CH_TX,Ch,&gain)!=0) //normalized gain
-			error();
-		if(LMS_GetGaindB(device,LMS_CH_TX,Ch,&gaindB)!=0)
-			error();
-		printf("Normalized TX Gain: %f, TX Gain: %i dB\n",gain,gaindB);
-		if(LMS_Calibrate(device,LMS_CH_TX,Ch,frq_step,0)!=0)
-			error();
-	}
-	streamId.channel=Ch; //channel number
-	streamId.fifoSize=1024*1024; //fifo size in samples
-	streamId.throughputVsLatency=1.0; //optimize for max throughput
-	streamId.isTx=false; //RX channel
-	streamId.dataFmt=lms_stream_t::LMS_FMT_F32; //32-bit floats
-	if(LMS_SetupStream(device,&streamId)!=0)
-		error();
-	LMS_StartStream(&streamId);
-}
-
-void CloseSDR( void )
-{
-	if(LMS_EnableChannel(device,LMS_CH_TX,Ch,false)!=0)
-		error();
-	if(LMS_SetGaindB(device,LMS_CH_TX,Ch,0)!= 0) // 0:73
-		error(); // switch off Tx so not to interfere.
-	LMS_StopStream(&streamId); //stream is stopped but can be started again with LMS_StartStream()
-	LMS_DestroyStream(device, &streamId); //stream is deallocated and can no longer be used
-	LMS_Close(device);
-}
-
-int error( void )
-{
-	printf("LimeSDR: ERROR\n");
-	if(device!=NULL)
-		LMS_Close(device);
-	exit(-1);
-}
-
-void DecodeArg( int argc, char *argv[] )
+void DecCmdLine( int argc, char *argv[] )
 { // support a subset of Soapy Power for compatibility
 	int ci=0;
 	char units1,units2,sep;
@@ -529,11 +541,11 @@ void DecodeArg( int argc, char *argv[] )
 			ci++;
 			NFFT=atoi(argv[ci]);
 		}
-/*		if( strcmp(argv[ci],"-C" )==0 ) // channel number - always 0 for LimeSDRmini
+		if( strcmp(argv[ci],"-C" )==0 ) // channel number - always 0 for LimeSDRmini
 		{
 			ci++;
 			Ch=atoi(argv[ci]);
-		}*/
+		}
 		if( strcmp(argv[ci],"-n" )==0 ) // repeats
 		{
 			ci++;
@@ -543,7 +555,7 @@ void DecodeArg( int argc, char *argv[] )
 		{
 			ci++;
 			scanLen=sscanf(argv[ci],"%f%c",&frq_LPF,&units1);
-			if( scanLen>1 ) // detect ifunits used
+			if( scanLen>1 ) // detect if units used
 			{
 				if( units1=='k' )
 					frq_LPF*=1e3;
@@ -553,7 +565,7 @@ void DecodeArg( int argc, char *argv[] )
 					frq_LPF*=1e9;
 			}
 		}
-		if( strcmp(argv[ci],"-OSR" )==0 ) // channel number
+		if( strcmp(argv[ci],"-OSR" )==0 ) // Oversample rate
 		{
 			ci++;
 			OSR=atoi(argv[ci]);
@@ -588,7 +600,7 @@ void DecodeArg( int argc, char *argv[] )
 			units1=' ';
 			units2=' ';
 			scanLen=sscanf(argv[ci],"%f%c%c%f%c",&frq_min,&units1,&sep,&frq_max,&units2);
-			if( scanLen>3 ) // detect ifunits used
+			if( scanLen>3 ) // detect if units used
 			{
 				if( units1=='k' )
 					frq_min*=1.0e3;
@@ -604,8 +616,8 @@ void DecodeArg( int argc, char *argv[] )
 					frq_max*=1.0e9;
 			}
 		}
-		if( (strcmp(argv[ci],"-v" )==0) || (strcmp(argv[ci],"--version" )==0) ) // Version number
-			printf("Version=%f\n",0.0);
+		if( (strcmp(argv[ci],"-v" )==0) || (strcmp(argv[ci],"--version" )==0) ) 
+			printf("Version=%f\n",0.0); // Version number
 		if( (strcmp(argv[ci],"-h" )==0) || (strcmp(argv[ci],"--help" )==0) )
 			printf("LimeScan [-h] [--help] [-f Hz:Hz] [-O FILEstub] [-o FILEstub] [--info] [-v] [--version] [-b BINS] [-w Hz] [-r S/s] [-n REPEATS] [-t SECONDS] [-A ANTENNA] [-C CHANNEL]\n");
 		if( strcmp(argv[ci],"--info" )==0 ) // Soapy device info - not relevant
@@ -623,6 +635,14 @@ void DecodeArg( int argc, char *argv[] )
 			doTst=1;
 			printf("-Tst %i\n",tstLvl);
 		}
+		if( strcmp(argv[ci],"-pwla" )==0 )
+			doPwlAnt=1;
+		if( strcmp(argv[ci],"-pwlw" )==0 )
+			doPwlLNAW=1;
+		if( strcmp(argv[ci],"-pwlh" )==0 )
+			doPwlLNAH=1;
+		if( strcmp(argv[ci],"-pwll" )==0 )
+			doPwlLNAL=1;
 		ci++;
 	}
 	mkdir( fNameStem, S_IRWXU ); // S_IROTH Note: default ./output - for graphics and .xls; .csv to stdout
@@ -661,29 +681,71 @@ void DecodeArg( int argc, char *argv[] )
 	fclose(fp);
 }
 
-void DisplayBinFile( char *fname ) // xdg-open can be used to open txt,pdf,png,jpg,gif,mpg,avi
-{
+void DisplayBinFile( char *fname ) 
+{ // xdg-open can open txt,pdf,png,jpg,gif,mpg,avi. Preinstalled in Ubuntu 16.04
 	char cmd[255];
 	int err;
-	sprintf(cmd,"xdg-open %s",fname); // xdg-open preinstalled in Ubuntu 16.04
+	sprintf(cmd,"xdg-open %s",fname);
 	printf("SYSTEM(\"%s\")\n",cmd);
-	err=system(cmd); // alternatives numerous include feh,eog,shotwell,tycat,tiv,gnome-open,pxl
+	err=system(cmd); // alternatives include: feh,eog,shotwell,tycat,tiv,gnome-open,pxl
 	if( err!=0 )
 		printf("system() %i %s\n",err,strerror(errno));
 }
 
+int ReadPwl( char fname[],double xlim[],double mPwl[],double cPwl[] )
+{ // file format 'freq MHz', 'level dB'
+	double ylim[256];
+	short ci;
+	unsigned char limCnt=0;
+	FILE *fp=NULL;
+	if( (fp=fopen(fname,"r"))==NULL )
+	{
+		printf("PWL file %s not found\n",fname);
+		exit(1);
+	}
+	while( 1 )
+	{
+		if( fscanf(fp,"%lf %lf",&xlim[limCnt],&ylim[limCnt])<2 )
+			break;
+		limCnt++;
+	}
+	if( limCnt<2 )
+	{
+		printf("ERROR - too few limits\n");
+		exit(1);
+	}
+	for(ci=0;ci<(limCnt-1);ci++)
+	{
+		mPwl[ci]=(ylim[ci+1]-ylim[ci])/(xlim[ci+1]-xlim[ci]);
+		cPwl[ci]=ylim[ci]-xlim[ci]*mPwl[ci];
+	}
+	return(limCnt-1);
+}
+
+void ApplyPwl( double *vecy[],double xlim[],double mPwl[],double cPwl[],unsigned char nPwl )
+{ // linear interpolation between pwl table
+	int ci;
+	int cj;
+	unsigned char ck=0;
+	for(cj=0;cj<fCnt;cj++)
+		for(ci=0;ci<NFFT;ci++)
+		{
+			while( (xlim[ck+1]<fmat[cj][ci]) && (ck<nPwl) ) // check in interval range
+				ck++;
+			vecy[cj][ci]-=fmat[cj][ci]*mPwl[ck]+cPwl[ck];
+		}
+}
+
 void ReadGPRMC( char *buffer )
 { // time UTC, status, lat, long, speed, track, date, 
-	float gpsTime[3]; // 0 hr, 1 min, 2 sec
-	int gpsDate[3]; // 0 day, 1 mnth, 2 yr
-	char gpsStatus='N';
+	float gpsTime[3]={0,0,0}; // 0 hr, 1 min, 2 sec
+	int gpsDate[3]={0,0,0}; // 0 day, 1 mnth, 2 yr
 	short gpsLatDeg=0; // deg
 	float gpsLatMin=0; // min
 	char gpsLatRef=' ';
 	short gpsLngDeg=0; // deg
 	float gpsLngMin=0; // min
 	char gpsLngRef=' ';
-	float gpsAlt=0; // m
 	float gpsTrackT=0; // heading relative to true north
 	float gpsSpeedK=0; // km/h
 
@@ -756,50 +818,6 @@ void ReadGPRMC( char *buffer )
 	printf("%i/%i/%i UK ",gpsDate[0],gpsDate[1],gpsDate[2]);
 	printf("%io %.3f'%c %io %.3f'%c ",gpsLatDeg,gpsLatMin,gpsLatRef, gpsLngDeg,gpsLngMin,gpsLngRef);
 	printf("vel=%.1fkt Hdg=%.3foT\n",gpsSpeedK,gpsTrackT);
-}
-
-int ReadPwl( char fname[],double xlim[],double mPwl[],double cPwl[] )
-{
-	double ylim[256];
-	short ci;
-	unsigned char limCnt=0;
-	FILE *fp=NULL;
-	if( (fp=fopen(fname,"r"))==NULL )
-	{
-		printf("PWL file %s not found\n",fname);
-		exit(1);
-	}
-	while( 1 )
-	{
-		if( fscanf(fp,"%lf %lf",&xlim[limCnt],&ylim[limCnt])<2 )
-			break;
-		limCnt++;
-	}
-	if( limCnt<2 )
-	{
-		printf("ERROR - too few limits\n");
-		exit(1);
-	}
-	for(ci=0;ci<(limCnt-1);ci++)
-	{
-		mPwl[ci]=(ylim[ci+1]-ylim[ci])/(xlim[ci+1]-xlim[ci]);
-		cPwl[ci]=ylim[ci]-xlim[ci]*mPwl[ci];
-	}
-	return(limCnt-1);
-}
-
-void ApplyPwl( double *vecy[],double xlim[],double mPwl[],double cPwl[],unsigned char nPwl )
-{
-	int ci;
-	int cj;
-	unsigned char ck=0;
-	for(cj=0;cj<fCnt;cj++)
-		for(ci=0;ci<NFFT;ci++)
-		{
-			while( (xlim[ck+1]<fmat[cj][ci]) && (ck<nPwl) ) // check in interval range
-				ck++;
-			vecy[cj][ci]=fmat[cj][ci]*mPwl[ck]+cPwl[ck];
-		}
 }
 
 char* ReadTil( char buffer[], char word[] )
