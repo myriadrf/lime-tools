@@ -9,14 +9,21 @@ project("Lime-tools")
 ## compiler flags
 ########################################################################
 if(CMAKE_COMPILER_IS_GNUCXX)
-    add_compile_options(-Ofast -march=native -ftree-vectorize -funsafe-math-optimizations)
+    add_compile_options(-Ofast -march=native -ftree-vectorize -funsafe-math-optimizations -Wall)
 endif()
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 
-find_package(Gnuplot REQUIRED)
 find_package(FFTW3 REQUIRED)
 find_package(LimeSuite REQUIRED)
+
+find_package(Gnuplot)
+include(CMakeDependentOption)
+cmake_dependent_option(ENABLE_GNUPLOT "Enable GNUPlot graphs" ON "GNUPLOT_FOUND" OFF)
+if (ENABLE_GNUPLOT)
+add_definitions(-DUSE_GNUPLOT)
+message(STATUS "GNUPlot enabled")
+endif()
 
 message(STATUS "FFTW3 LIBRARIES: " ${FFTW3_LIBRARIES})
 message(STATUS "FFTW3 INCLUDE DIRS: " ${FFTW3_INCLUDE_DIR})

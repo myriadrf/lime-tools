@@ -33,7 +33,7 @@ limitations under the License.
 #endif
 #ifdef USE_FFTW_COMPLEX
 #include <fftw3.h>  // Do before complex.h to force typedef double fftw_complex[2]
-#include <complex.h> 
+#include <complex.h>
 #endif
 #include <unistd.h> // pipes usleep
 #include <fcntl.h> // file control
@@ -45,12 +45,6 @@ limitations under the License.
 
 #define PI 3.14159265
 #define PI2 (2*PI)
-
-// use only one of of the following
-#define USE_C99_COMPLEX  // assumes fftw_complex maps to C99 double _Complex (Ubuntu)
-// cannot easily see how we can automatically detect correct type from <fftw3.h>
-// Assume FFTW incompatibility with C99 on Raspberry Pi is temporary
-// - see 4.1.1 of fftw3.pdf on C99 compatibility with FFTW3
 
 using namespace std;
 
@@ -146,7 +140,7 @@ int main( int argc, char *argv[] )
 		nPwl=ReadPwl( fPwlLNAL,xPwl,mPwl,cPwl );
 		ApplyPwl( z,xPwl,mPwl,cPwl,nPwl );
 	}
-	if( (doPwlLNAW>0) && (LNAnum==3) ) 
+	if( (doPwlLNAW>0) && (LNAnum==3) )
 	{
 		nPwl=ReadPwl( fPwlLNAW,xPwl,mPwl,cPwl );
 		ApplyPwl( z,xPwl,mPwl,cPwl,nPwl );
@@ -233,7 +227,7 @@ void OpenSDR( void )
 	unsigned int gaindBTx;
 	float_type rate=frq_Samp;
 	float_type rf_rate=frq_Samp*OSR;
-	float_type gain; 
+	float_type gain;
     lms_name_t antenna_list[10]; // large enough list for antenna names.
 	if((n=LMS_GetDeviceList(NULL))<0) // Pass NULL to only obtain number of devices
 		error();
@@ -267,13 +261,13 @@ void OpenSDR( void )
 		error();
 	printf("\nDefault: %i:%s, ",n,antenna_list[n]);
 	if( LNAnum==1 )
-		if(LMS_SetAntenna(device, LMS_CH_RX, Ch, LMS_PATH_LNAH) != 0) 
+		if(LMS_SetAntenna(device, LMS_CH_RX, Ch, LMS_PATH_LNAH) != 0)
 			error();
 	if( LNAnum==2 )
-		if(LMS_SetAntenna(device, LMS_CH_RX, Ch, LMS_PATH_LNAL) != 0) 
+		if(LMS_SetAntenna(device, LMS_CH_RX, Ch, LMS_PATH_LNAL) != 0)
 			error();
 	if( LNAnum==3 )
-		if(LMS_SetAntenna(device, LMS_CH_RX, Ch, LMS_PATH_LNAW) != 0) 
+		if(LMS_SetAntenna(device, LMS_CH_RX, Ch, LMS_PATH_LNAW) != 0)
 			error();
 	if((n = LMS_GetAntenna(device, LMS_CH_RX, Ch)) < 0) // get selected antenna index
 		error();
@@ -288,9 +282,9 @@ void OpenSDR( void )
 	lms_range_t range; //Get allowed LPF bandwidth range
 	if(LMS_GetLPFBWRange(device,LMS_CH_RX,&range)!=0)
 		error(); // RX LPF range: 1.400100 - 130.000000 MHz
-//	printf("RX LPF bandwitdh range: %f - %f MHz\n", range.min/1.0e6,range.max/1.0e6);   
+//	printf("RX LPF bandwitdh range: %f - %f MHz\n", range.min/1.0e6,range.max/1.0e6);
 	if(LMS_SetLPFBW(device, LMS_CH_RX, Ch, frq_step)!=0)  //Configure LPF, bandwidth 8 MHz
-		error(); 
+		error();
 	int err=0;
 	if(LMS_SetGaindB(device,LMS_CH_RX,Ch,gaindB)!=0) // 0:73 breaks
 	{
@@ -309,7 +303,7 @@ void OpenSDR( void )
 	{
 		if(LMS_EnableChannel(device,LMS_CH_TX,Ch,true)!=0)
 			error();
-		if(LMS_SetAntenna(device,LMS_CH_TX,Ch,LMS_PATH_TX1)!=0) 
+		if(LMS_SetAntenna(device,LMS_CH_TX,Ch,LMS_PATH_TX1)!=0)
 			error();
 		if(LMS_SetLOFrequency(device,LMS_CH_TX,Ch,tstFrq)!=0)
 			error();
@@ -380,7 +374,7 @@ void ScanMode1( void )
 			mb[1][ci]=0.0; // rms
 			mb[2][ci]=1.0; // min
 			mb[3][ci]=0.0; // max
-		}		
+		}
 		swpTime[ct]=time(NULL);
 		for( crpt=0; crpt<NRpt; crpt++ )
 		{
@@ -452,7 +446,7 @@ void ScanMode3( void )
 			mb[1][ci]=0.0; // rms
 			mb[2][ci]=1.0; // min
 			mb[3][ci]=0.0; // max
-		}		
+		}
 		for( crpt=0; crpt<NRpt; crpt++ ) // Bulk FFT for average point
 		{
 #ifdef USE_C99_COMPLEX
@@ -500,7 +494,7 @@ void GnuPlotDispAndSave( char *fName,double **zz )
 	unsigned int cj,ct;
 	char fname[100];
 	FILE *ftdv, *fcsv;
-	
+
 	float fftsf=(frq_Samp/1.0e6)/NFFT;
 #ifdef USE_GNUPLOT
 	FILE *GpPipe;
@@ -535,8 +529,8 @@ void GnuPlotDispAndSave( char *fName,double **zz )
 	fprintf(GpPipe,"e\n");
 	fflush(GpPipe);
 	pclose(GpPipe); // kill gnuplot process!
-#endif	
-	sprintf( fname, "%s/%s.xls",fNameStem,fName); 
+#endif
+	sprintf( fname, "%s/%s.xls",fNameStem,fName);
 	ftdv=fopen(fname,"w"); // standard xls tab delimited variable "\t" format
 	fprintf(ftdv,"\t\t");
 	for(cj=0;cj<NFFT;++cj)
@@ -652,7 +646,7 @@ void DecCmdLine( int argc, char *argv[] )
 			ci++;
 			strcpy(fNameStem,argv[ci]);
 		}
-		if( strcmp(argv[ci],"-f" )==0 ) // center frequency 
+		if( strcmp(argv[ci],"-f" )==0 ) // center frequency
 		{
 			ci++;
 			units1=' ';
@@ -714,7 +708,7 @@ void DecCmdLine( int argc, char *argv[] )
 	if( LNAnum==2 )
 		fprintf(fp,"LNAL Ch=%i\n",Ch);
 	if( LNAnum==3 )
-		fprintf(fp,"LNAW Ch=%i\n",Ch);	
+		fprintf(fp,"LNAW Ch=%i\n",Ch);
 	fprintf(fp,"Freq %.3f MHz\n", frq_cen*1.0e-6 );
 	if(time_len>=0.003) // s
 		t_Tic=0.2; // ms
@@ -738,7 +732,7 @@ void DecCmdLine( int argc, char *argv[] )
 	fclose(fp);
 }
 
-void DisplayBinFile( char *fname ) 
+void DisplayBinFile( char *fname )
 { // xdg-open can open txt,pdf,png,jpg,gif,mpg,avi. Preinstalled in Ubuntu 16.04
 	char cmd[255];
 	int err;
@@ -794,7 +788,7 @@ void ApplyPwl( double *vecy[],double xlim[],double mPwl[],double cPwl[],unsigned
 }
 
 void ReadGPRMC( char *buffer )
-{ // time UTC, status, lat, long, speed, track, date, 
+{ // time UTC, status, lat, long, speed, track, date,
 	float gpsTime[3]={0,0,0}; // 0 hr, 1 min, 2 sec
 	int gpsDate[3]={0,0,0}; // 0 day, 1 mnth, 2 yr
 	short gpsLatDeg=0; // deg
@@ -862,7 +856,7 @@ void ReadGPRMC( char *buffer )
 		gpsTrackT=atof(word);
 	}
 	if( buf!=NULL )
-	{ // data 
+	{ // data
 		buf=ReadTil( buf, word );
 		ReadSubWord(word,subWord,0,2);
 		gpsDate[0]=atoi(subWord);
