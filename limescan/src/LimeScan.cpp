@@ -486,6 +486,7 @@ void DecCmdLine( int argc, char *argv[] )
 	char units1,units2,sep;
 	int scanLen;
 	char fname[100];
+	signed char quitOnHelp=0;
 	FILE *fp;
 	while( ci<argc )
 	{
@@ -582,7 +583,10 @@ void DecCmdLine( int argc, char *argv[] )
 		if( (strcmp(argv[ci],"-v" )==0) || (strcmp(argv[ci],"--version" )==0) )
 			printf("Version=%f\n",0.0); // Version number
 		if( (strcmp(argv[ci],"-h" )==0) || (strcmp(argv[ci],"--help" )==0) )
+		{
 			printf("LimeScan [-h] [--help] [-f Hz:Hz] [-O FILEstub] [-o FILEstub] [--info] [-v] [--version] [-b BINS] [-w Hz] [-r S/s] [-n REPEATS] [-t SECONDS] [-A ANTENNA] [-C CHANNEL]\n");
+			quitOnHelp=1;
+		}
 		if( strcmp(argv[ci],"--info" )==0 ) // Soapy device info - not relevant
 			printf("No information available, please consult your system administrator\n");
 		if( strcmp(argv[ci],"-gps" )==0 )
@@ -642,6 +646,9 @@ void DecCmdLine( int argc, char *argv[] )
 	fprintf(fp,"LPF=%.3f MHz (RF)\n",frq_LPF*1.0e-6);
 	fprintf(fp,"FFTW %i bins, with Hann Window, NRpt=%i\n",NFFT,NRpt);
 	fclose(fp);
+
+	if(quitOnHelp>0)
+		exit(0);
 }
 
 void DisplayBinFile( char *fname )
