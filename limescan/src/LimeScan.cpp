@@ -14,25 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// use only one of of the following
-//#define USE_C99_COMPLEX 1 // assumes fftw_complex maps to C99 double _Complex (Ubuntu)
-#define USE_FFTW_COMPLEX 2 // assumes typedef double fftw_complex[2]; (Raspberry Pi)
-// cannot easily see how we can automatically detect correct type from <fftw3.h>
-// Assume FFTW incompatibility with C99 on Raspberry Pi is temporary
-// - see 4.1.1 of fftw3.pdf on C99 compatibility with FFTW3
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#ifdef USE_C99_COMPLEX
 #include <complex.h> // double _Complex, compliant with double, fftw_complex[2] Re=0, Im=1
 #include <fftw3.h>  // should come after complex.h
-#endif
-#ifdef USE_FFTW_COMPLEX
-#include <fftw3.h>  // Do before complex.h to force typedef double fftw_complex[2]
-#include <complex.h>
-#endif
 #include <unistd.h> // pipes usleep
 #include <fcntl.h> // file control
 #include <sys/types.h> // pipes
@@ -85,14 +73,8 @@ unsigned int fCnt;
 lms_device_t* device=NULL; // SDR device
 lms_stream_t streamId; // SDR stream
 double *win=NULL; // hamming window coefficients
-#ifdef USE_C99_COMPLEX
 double _Complex *in=NULL; // registered with FFTW
 double _Complex *out=NULL; // registered with FFTW
-#endif
-#ifdef USE_FFTW_COMPLEX
-fftw_complex *in=NULL;
-fftw_complex *out=NULL;
-#endif
 fftw_plan pfft; // FFTW
 time_t *swpTime;
 double **fmat; // freq values for interpolation with pwl (MHz)
@@ -178,14 +160,8 @@ int main( int argc, char *argv[] )
 void Init( void )
 { // memory allocation and frequency settings
 	unsigned int ci;
-#ifdef USE_C99_COMPLEX
 	in=(double _Complex *) fftw_malloc(sizeof(double _Complex)*NFFT); // align for SIMD
 	out=(double _Complex *) fftw_malloc(sizeof(double _Complex)*NFFT); // align for SIMD
-#endif
-#ifdef USE_FFTW_COMPLEX
-	in=(fftw_complex *) fftw_malloc(sizeof(fftw_complex)*NFFT); // align for SIMD
-	out=(fftw_complex *) fftw_malloc(sizeof(fftw_complex)*NFFT); // align for SIMD
-#endif
 	win=(double *)malloc(sizeof(double)*NFFT);
 	frq_step=frq_Samp;
 	frq_min+=frq_step/2;
@@ -210,7 +186,11 @@ void Init( void )
 //		win[ci]=0.355768-0.487396*cos((PI2*ci)/(NFFT-1))+0.144232*cos((2*PI2*ci)/(NFFT-1))-0.012604*cos((3*PI2*ci)/(NFFT-1)); // Nutall
 //		win[ci]=0.3635819-0.4891775*cos((PI2*ci)/(NFFT-1))+0.1365995*cos((2*PI2*ci)/(NFFT-1))-0.0106411*cos((3*PI2*ci)/(NFFT-1)); // Blackman Nutall
 //		win[ci]=0.35875-0.48829*cos((PI2*ci)/(NFFT-1))+0.14128*cos((2*PI2*ci)/(NFFT-1))-0.01168*cos((3*PI2*ci)/(NFFT-1)); // Blackman Harris
-	pfft=fftw_plan_dft_1d(NFFT,in,out,FFTW_FORWARD,FFTW_ESTIMATE);
+	pfft=fftw_plan_dft_1d(NFFT,
+                reinterpret_cast<fftw_complex*>(in),
+                reinterpret_cast<fftw_complex*>(out),
+                FFTW_FORWARD,
+                FFTW_ESTIMATE);
 }
 
 void ShutDown( void )
@@ -388,28 +368,13 @@ void Scan( void )
 		{
 			swpTime[cf]=time(NULL);
 			samplesRead=LMS_RecvStream(&streamId,buf,NFFT,NULL,NFFT);
-#ifdef USE_C99_COMPLEX
 			for(ci=0;ci<NFFT;ci++) // copy SDR buffer to FFTW and window (Vectorized)
 				in[ci]=buf[ci]*win[ci];
-#endif
-#ifdef USE_FFTW_COMPLEX
-			for(ci=0;ci<NFFT;ci++) // copy SDR buffer to FFTW and window (Vectorized)
-			{
-				in[ci][0]=creal(buf[ci])*win[ci];
-				in[ci][1]=cimag(buf[ci])*win[ci];
-			}
-#endif
 			fftw_execute(pfft);
 			for( ci=0;ci<NFFT;ci++) // vectorized
 			{
-#ifdef USE_C99_COMPLEX
 				mb[0][ci]=creal(out[ci]*conj(out[ci]));
 				mb[1][ci]+=creal(out[ci]*conj(out[ci]));
-#endif
-#ifdef USE_FFTW_COMPLEX
-				mb[0][ci]=out[ci][0]*out[ci][0]+out[ci][1]*out[ci][1];
-				mb[1][ci]+=out[ci][0]*out[ci][0]+out[ci][1]*out[ci][1];
-#endif
 			}
 			for( ci=0;ci<NFFT;ci++) // vectorized
 			{
