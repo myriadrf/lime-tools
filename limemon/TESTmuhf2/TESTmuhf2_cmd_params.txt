@@ -1,9 +1,0 @@
-./LimeMon -f 430M -C 0 -A LNAW -w 35M -r 16M -OSR 8 -b 256 -g 48 -n 32 -O TESTmuhf2 -T 0.12 
-
-LNAW Ch=0
-Freq 430.000 MHz
-time=120.000ms tsamp=0.512ms
-Rate=16.000 MS/s OSR=8 ADC=128.000MS/s CLKGEN=512.000MHz
-Gain=48dB
-LPF=35.000 MHz (RF)
-FFTW 256 bins, with Hann Window, NRpt=32

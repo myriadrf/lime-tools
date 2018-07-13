@@ -2,19 +2,7 @@ Introdcution:
 
 Welcome to the LimeScan software.  LimeScan produces automated min,max,rms power sweep measurements vs frequency and time in .csv, .xls and .gif formats.  Software has compatible command line to SoapyPower.
 
-Dependecies:
-
-libfftw3-3 xgnuplot xdg-open limesuite
-
-To obtain limesuite, follow instructions on https://wiki.myriadrf.org/Lime_Suite
-If you choose the repository version of LimeSuite, be sure to also include liblimesuite-dev 
-
-To compile:
-
-make clean
-make
-
-To run:
+Usage:
 
 For best results use an external antenna.  Fit antenna to RX input, and run the following script.
 ./testScript.sh

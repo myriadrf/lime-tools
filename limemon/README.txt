@@ -2,18 +2,7 @@ Introdcution:
 
 Welcome to the LimeMon software.  LimeMon produces automated power sweep measurements vs time and frequency in .csv, .xls and .gif formats.  Software has compatible command line to Soapy Power.
 
-Dependecies:
-
-libfftw3-3 xgnuplot xdg-open limesuite
-To obtain limesuite, follow instructions on https://wiki.myriadrf.org/Lime_Suite
-If you choose the repository version of LimeSuite, be sure to also include liblimesuite-dev 
-
-To compile:
-
-make clean
-make
-
-To run:
+Usage:
 
 For best results use an external antenna.  Fit antenna to RX input, and run the following script.
 ./testScript.sh

@@ -1,9 +1,0 @@
-./LimeScan -f 2400M:2700M -C 0 -A LNAH -w 35M -r 16M -OSR 8 -b 512 -g 48 -n 64 -O TESTwifiLTE -T 1 
-
-LNAH Ch=0
-Freq Range 2400.000:2700.000 MHz
-Rate=16.000 Ms/s OSR=8
-512.000000
-Gain=48dB
-LPF=35.000 MHz (RF)
-FFTW 512 bins, with Hann Window, NRpt=64
