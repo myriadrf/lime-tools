@@ -468,7 +468,7 @@ void GnuPlotDispAndSave( char *fName,double **zz )
 //		struct tm *myTime=localtime(&swpTime[ci]);
 		char dateStr[100];
 		char time24Str[100]; // yr-mnth-dy,24h time
-		sprintf(dateStr,"%i-%i-%i",myTime->tm_year+1900,myTime->tm_mon,myTime->tm_mday);
+		sprintf(dateStr,"%i-%i-%i",myTime->tm_year+1900,myTime->tm_mon+1,myTime->tm_mday);
 		sprintf(time24Str,"%i:%i:%i",myTime->tm_hour,myTime->tm_min,myTime->tm_sec);
 		fprintf(fcsv,"%s, %s, ",dateStr,time24Str);
 		fprintf(fcsv,"%.3f, %.3f, %.1f, %i",(frq_min+frq_step*(ci-0.5))/1e6,(frq_min+frq_step*(ci+0.5))/1e6,frq_step/NFFT,NFFT); // frq_min, frq_max, fftbin_frq_width, buffer_length_samples
