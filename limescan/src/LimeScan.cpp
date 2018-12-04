@@ -290,7 +290,7 @@ void OpenSDR( void )
 
 	if (frq_step < 2.5e6)
 	{
-		printf("Warning: Calibrating for 2.5 MHz bandwidth (requested %.2f MHz [out of range])\n");
+		printf("Warning: Calibrating for 2.5 MHz bandwidth (requested %.2f MHz [out of range])\n", frq_step/1e6);
 		if(LMS_Calibrate(device,LMS_CH_RX,Ch,2.5e6,0)!=0)
 			error();
 	}
