@@ -287,8 +287,19 @@ void OpenSDR( void )
 	if(LMS_GetGaindB(device,LMS_CH_RX,Ch,&gaindB)!=0)
 		error();
 	printf("Normalized RX Gain: %f, RX Gain: %i dB\n",gain,gaindB);
-	if(LMS_Calibrate(device,LMS_CH_RX,Ch,frq_step,0)!=0)
-		error();
+
+	if (frq_step < 2.5e6)
+	{
+		printf("Warning: Calibrating for 2.5 MHz bandwidth (requested %.2f MHz [out of range])\n");
+		if(LMS_Calibrate(device,LMS_CH_RX,Ch,2.5e6,0)!=0)
+			error();
+	}
+	else
+	{
+		if(LMS_Calibrate(device,LMS_CH_RX,Ch,frq_step,0)!=0)
+			error();
+	}
+
 	if( doTst>0 )
 	{ // optional TX test signal
 		if(LMS_EnableChannel(device,LMS_CH_TX,Ch,true)!=0)
