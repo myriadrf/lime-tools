@@ -1,4 +1,7 @@
-FROM registry.gitlab.com/pantacor/c-green1/lime-suite:ARM32V6 as sysroot
+#
+# build our sysroot that we will cross compile against
+#
+FROM registry.gitlab.com/myriadrf/lime-suite:ARM32V6-master as sysroot
 
 RUN apk update && \
 	apk --force add \
@@ -10,7 +13,10 @@ RUN apk update && \
 	rm -rf /var/cache/apk/* && \
 	pip3 install requests
 
-#FROM registry.gitlab.com/pantacor/platform-tools/docker-musl-cross-arm-cross as crossbuilder
+
+#
+# cross builder container for musl libc (aka alpine)
+#
 FROM registry.gitlab.com/pantacor/platform-tools/docker-musl-cross-arm as crossbuilder
 
 WORKDIR /work
@@ -20,7 +26,10 @@ COPY . src
 
 RUN cd src && cmake --debug-output -DCMAKE_TOOLCHAIN_FILE=./cmake-cross/arm32v6 -DCMAKE_CXX_FLAGS="-I/sysroot-arm/usr/local/include" -DCMAKE_C_FLAGS="-I/sysroot-arm/usr/local/include"; make; make install
 
-FROM registry.gitlab.com/pantacor/c-green1/lime-suite:ARM32V6
+#
+# produce our nice, tiny container with just the binary artifacts
+#
+FROM registry.gitlab.com/myriadrf/lime-suite:ARM32V6-master
 
 COPY --from=crossbuilder /work/stage /usr/local
 
