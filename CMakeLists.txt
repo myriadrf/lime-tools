@@ -9,7 +9,7 @@ project("Lime-tools")
 ## compiler flags
 ########################################################################
 if(CMAKE_COMPILER_IS_GNUCXX)
-    add_compile_options(-Ofast -march=native -ftree-vectorize -funsafe-math-optimizations -Wall)
+    add_compile_options(-Ofast -ftree-vectorize -funsafe-math-optimizations -Wall)
 endif()
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")

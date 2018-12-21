@@ -1,0 +1,26 @@
+FROM registry.gitlab.com/pantacor/c-green1/lime-suite:ARM32V6 as sysroot
+
+RUN apk update && \
+	apk --force add \
+		build-base \
+		python3 \
+		libusb-dev \
+		fftw-dev \
+		libstdc++ && \
+	rm -rf /var/cache/apk/* && \
+	pip3 install requests
+
+#FROM registry.gitlab.com/pantacor/platform-tools/docker-musl-cross-arm-cross as crossbuilder
+FROM registry.gitlab.com/pantacor/platform-tools/docker-musl-cross-arm as crossbuilder
+
+WORKDIR /work
+RUN mkdir /work/stage; apt-get update; apt-get install make cmake cmake-data -y; apt-get clean
+COPY --from=sysroot / /sysroot-arm
+COPY . src
+
+RUN cd src && cmake --debug-output -DCMAKE_TOOLCHAIN_FILE=./cmake-cross/arm32v6 -DCMAKE_CXX_FLAGS="-I/sysroot-arm/usr/local/include" -DCMAKE_C_FLAGS="-I/sysroot-arm/usr/local/include"; make; make install
+
+FROM registry.gitlab.com/pantacor/c-green1/lime-suite:ARM32V6
+
+COPY --from=crossbuilder /work/stage /usr/local
+
