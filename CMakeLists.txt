@@ -40,6 +40,11 @@ add_executable(LimeScan limescan/src/LimeScan.cpp)
 target_link_libraries(LimeScan m ${LIMESUITE_LIBRARIES} ${FFTW3_LIBRARIES})
 install(TARGETS LimeScan DESTINATION bin)
 
+add_executable(LimeStream limestream/src/LimeStream.cpp)
+target_link_libraries(LimeStream m ${LIMESUITE_LIBRARIES})
+install(TARGETS LimeStream DESTINATION bin)
+
+
 ########################################################################
 # uninstall target
 ########################################################################
