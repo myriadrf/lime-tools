@@ -61,6 +61,7 @@ short *txbuffer[2] = {NULL, NULL};
 short *rxbuffer[2] = {NULL, NULL};
 
 bool verbose = false;
+bool repeatfile= false;
 
 // LimeSDR specific variables
 int devicenb = 0; // Index of device to open
@@ -79,6 +80,7 @@ static void usage()
            "  -d <Device index> set the Device index if multiple devices\n"
            "  -p <calibration file> : use a Profile calibration file \n"
            "  -c <calibration file> : generate a profile Calibration file \n"
+           "  -R : Repeat file (only on tx mode)\n" 
            "  -v : Verbose , print info and statistics \n");
 }
 
@@ -172,7 +174,7 @@ int main(int argc, char **argv)
     int opt;
     bool result = false;
 
-    while ((opt = getopt(argc, argv, "f:s:g:r:t:b:d:p:c:vh?")) != EOF)
+    while ((opt = getopt(argc, argv, "f:s:g:r:t:b:d:p:c:vRh?")) != EOF)
     {
         result = true;
         switch (opt)
@@ -211,6 +213,9 @@ int main(int argc, char **argv)
         case 'v':
             verbose = true;
             break;
+        case 'R':
+            repeatfile = true;
+            break;    
         case 'h':
         case '?':
             usage();
@@ -247,12 +252,7 @@ int main(int argc, char **argv)
 
     //Calculate buffersize regarding samplerate and latency
     // Fpga packet is is 1020 * IQ16 samples (USB burst)
-    //double rate = sample_rate/1e6;
-    //streamSize = (mTxStreams[0].used||mRxStreams[0].used) + (mTxStreams[1].used||mRxStreams[1].used);
-    //rate = (rate + 5) * config.performanceLatency * streamSize;
-    // rate is multiple of 2
-    // For 4MS one channel , (4+5)=9 mulitple of 2^n -> 8
-    // Fifo is performing 8*1020 samples at once
+    // As we don't have access to StreamChannel::GetStreamSize(), we simulate it
 
     double rate = sample_rate / 1e6;
     rate += 5;
@@ -594,9 +594,18 @@ int main(int argc, char **argv)
             {
                 if (!tx_isapipe)
                 {
-                    want_quit = true;
-                    nb_samples_to_send = 0;
-                    break;
+                    if(!repeatfile)
+                    {    
+                        want_quit = true;
+                        nb_samples_to_send = 0;
+                        break;
+                    }
+                    else
+                    {
+                       fseek(fd_tx, 0, SEEK_SET);
+                       continue;
+                    }
+                       
                 }
                 else
                 {
