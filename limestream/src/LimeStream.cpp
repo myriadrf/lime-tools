@@ -272,7 +272,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "Latency too short, setting to %f\n", SampleDelaySize);
     }
     buffer_size = (int)SampleDelaySize;
-    buffer_latency = SampleDelaySize * 1e3 / sample_rate;
+    buffer_latency = SampleDelaySize * 1e3 / sample_rate; //in millisec
     int burstlatency = ((BatchSize * 1020) * 1e3) / sample_rate;
     fprintf(stderr, "Info:Buffer size=%d samples, Buffer latency=%d ms, Burst latency=%d ms\n", buffer_size, buffer_latency, burstlatency);
 
@@ -305,12 +305,12 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
 
-        /*result = setvbuf(fd_rx, NULL, _IOFBF, rxfileburst);
+        result = setvbuf(fd_rx, NULL, _IOFBF, rxfileburst*sizeof(short)*2);
         if (result != 0)
         {
             fprintf(stderr, "setvbuf() failed: %d\n", result);
             return EXIT_FAILURE;
-        }*/
+        }
 
         rxcount++;
     }
@@ -332,12 +332,12 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
 
-        /*result = setvbuf(fd_tx, NULL, _IOFBF, txfileburst);
+        result = setvbuf(fd_tx, NULL, _IOFBF, txfileburst*sizeof(short)*2);
         if (result != 0)
         {
             fprintf(stderr, "setvbuf() failed: %d\n", result);
             return EXIT_FAILURE;
-        }*/
+        }
         txcount++;
     }
 
@@ -625,8 +625,7 @@ int main(int argc, char **argv)
             }
         }
     }
-    //Wait at least on buffer latency to send the latest samples if any
-    usleep(buffer_latency * 1e3);
+    
 
     // Free of intermediate I16 buffers
     if (rxcount>0)
