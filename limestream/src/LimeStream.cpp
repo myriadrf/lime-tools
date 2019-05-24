@@ -39,10 +39,10 @@ unsigned int channel = 0;
 int mode = -1; // Mode Rx=0,Tx=1,RxTx=2
 int buffer_latency = 500;
 
-char *input_filename = nullptr;
-char *output_filename = nullptr;
+char *input_filename = NULL;
+char *output_filename = NULL;
 
-char *calibrationfilename = nullptr;
+char *calibrationfilename = NULL;
 bool usecalibfile = false;
 bool generatecalibfile = false;
 
@@ -57,8 +57,8 @@ int rxcount = 0;
 int txfileburst = 1024;
 int rxfileburst = 1024;
 
-short *txbuffer[2] = {nullptr, nullptr};
-short *rxbuffer[2] = {nullptr, nullptr};
+short *txbuffer[2] = {NULL, NULL};
+short *rxbuffer[2] = {NULL, NULL};
 
 bool verbose = false;
 
@@ -125,22 +125,22 @@ static bool validate(lms_device_t *device)
 
     if (sample_rate < sr_range[DirectionToCheck].min)
     {
-        fprintf(stderr, "Samplerate too low %f<%f\n",sample_rate,sr_range[DirectionToCheck].min);
+        fprintf(stderr, "Samplerate too low %f<%f\n", sample_rate, sr_range[DirectionToCheck].min);
         checklimit = false;
     }
     if (sample_rate > sr_range[DirectionToCheck].max)
     {
-        fprintf(stderr, "Samplerate too high %f>%f\n",sample_rate,sr_range[DirectionToCheck].max);
+        fprintf(stderr, "Samplerate too high %f>%f\n", sample_rate, sr_range[DirectionToCheck].max);
         checklimit = false;
     }
     if (frequency < lo_range[DirectionToCheck].min)
     {
-        fprintf(stderr, "Frequency too low %f<%f\n",frequency,lo_range[DirectionToCheck].min);
+        fprintf(stderr, "Frequency too low %f<%f\n", frequency, lo_range[DirectionToCheck].min);
         checklimit = false;
     }
     if (frequency > lo_range[DirectionToCheck].max)
     {
-        fprintf(stderr, "Frequency too high %f>%f\n",frequency,lo_range[DirectionToCheck].max);
+        fprintf(stderr, "Frequency too high %f>%f\n", frequency, lo_range[DirectionToCheck].max);
         checklimit = false;
     }
 
@@ -188,11 +188,11 @@ int main(int argc, char **argv)
             break;
         case 'r':
             output_filename = optarg;
-            mode=0; //rx
+            mode = 0; //rx
             break;
         case 't':
             input_filename = optarg;
-            mode=1; //tx
+            mode = 1; //tx
             break;
         case 'b':
             buffer_latency = atoi(optarg);
@@ -236,9 +236,9 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    if(mode==-1)
+    if (mode == -1)
     {
-        fprintf(stderr,"Specify at least -t for transmit or -r to receive \n");
+        fprintf(stderr, "Specify at least -t for transmit or -r to receive \n");
         usage();
         return EXIT_FAILURE;
     }
@@ -305,12 +305,12 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
 
-        result = setvbuf(fd_rx, NULL, _IOFBF, rxfileburst);
+        /*result = setvbuf(fd_rx, NULL, _IOFBF, rxfileburst);
         if (result != 0)
         {
             fprintf(stderr, "setvbuf() failed: %d\n", result);
             return EXIT_FAILURE;
-        }
+        }*/
 
         rxcount++;
     }
@@ -332,12 +332,12 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
 
-        result = setvbuf(fd_tx, NULL, _IOFBF, txfileburst);
+        /*result = setvbuf(fd_tx, NULL, _IOFBF, txfileburst);
         if (result != 0)
         {
             fprintf(stderr, "setvbuf() failed: %d\n", result);
             return EXIT_FAILURE;
-        }
+        }*/
         txcount++;
     }
 
@@ -562,19 +562,19 @@ int main(int argc, char **argv)
 
     int samplecount = 0;
     lms_stream_status_t status;
-
+    
     while (!want_quit)
     {
         //Rx
         for (int i = 0; i < rxcount; i++)
         {
-            int nb_samples_received = LMS_RecvStream(&rx_stream[i], rxbuffer[i], rxfileburst, nullptr, buffer_latency);
+            int nb_samples_received = LMS_RecvStream(&rx_stream[i], rxbuffer[i], rxfileburst, NULL, buffer_latency);
             samplecount += nb_samples_received;
             if (nb_samples_received != rxfileburst)
             {
                 fprintf(stderr, "Receiving timeout, only %d/%d bytes received\n", nb_samples_received, rxfileburst);
             }
-            int nb_samples_written = fwrite(rxbuffer[i], sizeof(rxbuffer[i]), rxfileburst, fd_rx);
+            int nb_samples_written = fwrite(rxbuffer[i], sizeof(short)*2, rxfileburst, fd_rx);
             if (nb_samples_written != rxfileburst)
             {
                 // Pipe or regular file : not enough space, quit immediatelly
@@ -589,13 +589,14 @@ int main(int argc, char **argv)
         //Tx
         for (int i = 0; i < txcount; i++)
         {
-            int nb_samples_to_send = fread(txbuffer[i], sizeof(txbuffer[i]), txfileburst, fd_tx);
+            int nb_samples_to_send = fread(txbuffer[i], sizeof(short)*2, txfileburst, fd_tx);
             if (nb_samples_to_send != txfileburst)
             {
                 if (!tx_isapipe)
                 {
-                    //We end with a regular file, we quit but send the last packet
                     want_quit = true;
+                    nb_samples_to_send = 0;
+                    break;
                 }
                 else
                 {
@@ -604,7 +605,7 @@ int main(int argc, char **argv)
             }
             if (nb_samples_to_send > 0)
             {
-                int nb_samples_sent = LMS_SendStream(&tx_stream[i], txbuffer[i], nb_samples_to_send, nullptr, buffer_latency);
+                int nb_samples_sent = LMS_SendStream(&tx_stream[i], txbuffer[i], nb_samples_to_send, NULL, buffer_latency);
                 if (nb_samples_sent != txfileburst)
                 {
                     fprintf(stderr, "Sending timeout, only %d/%d bytes sent\n", nb_samples_sent, txfileburst);
@@ -620,23 +621,37 @@ int main(int argc, char **argv)
             {
                 fprintf(stderr, "Status : \tSampleRate %.0f \tfifo %d%% \tunderflow %d \toverflows %d \tdrop %d\n", status.linkRate / 4.0, (status.fifoFilledCount * 100) / status.fifoSize, status.underrun, status.overrun, status.droppedPackets);
                 samplecount = 0;
+               
             }
         }
     }
-    //Wait at least on 2* buffer latency to send the latest samples if any
+    //Wait at least on buffer latency to send the latest samples if any
     usleep(buffer_latency * 1e3);
 
-    //Close device
-    LMS_Close(device);
-
     // Free of intermediate I16 buffers
+    if (rxcount>0)
+    {
+        for (int i = 0; i < rxcount; i++)
+        {
+            LMS_StopStream(&rx_stream[i]);            // stream is stopped
+            LMS_DestroyStream(device, &rx_stream[i]); //stream can no longer be used
+            free(rxbuffer[i]);
+        }
+        fclose(fd_rx);
+    }
 
-    for (int i = 0; i < txcount; i++)
+    if (txcount>0)
     {
-        free(txbuffer[i]);
+        for (int i = 0; i < txcount; i++)
+        {
+            LMS_StopStream(&tx_stream[i]);            // stream is stopped
+            LMS_DestroyStream(device, &tx_stream[i]); //stream can no longer be used
+            free(txbuffer[i]);
+        }
+        fclose(fd_tx);
     }
-    for (int i = 0; i < rxcount; i++)
-    {
-        free(rxbuffer[i]);
-    }
+    
+    //Close device
+    if(device!=NULL)
+        LMS_Close(device);
 }
