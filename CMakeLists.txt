@@ -40,6 +40,8 @@ add_executable(LimeScan limescan/src/LimeScan.cpp)
 target_link_libraries(LimeScan m ${LIMESUITE_LIBRARIES} ${FFTW3_LIBRARIES})
 install(TARGETS LimeScan DESTINATION bin)
 
+add_subdirectory(LTEscan)
+
 ########################################################################
 # uninstall target
 ########################################################################
