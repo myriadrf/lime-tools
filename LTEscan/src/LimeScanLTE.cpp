@@ -135,6 +135,7 @@ int main( int argc, char *argv[] )
 	bandList[0]=8;
 	bandList[1]=20;
 	bandList[2]=0; // stop
+	mkdir( "./output", S_IRWXU ); // /output not included in github, need to generate
 	sprintf(flog,"./output/LTElog.txt"); // true linux, user should be able to specify full path
 	sprintf(fout,"./output/LTEscan.txt");
 	sprintf(fhtml,"./LTEscan.html"); // issue with imag paths

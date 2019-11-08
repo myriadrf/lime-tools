@@ -74,79 +74,6 @@ void LTEscan::CalcRMS10( short foff,float *p )
 	}
 } // this is independent of c2id
 
-void LTEscan::MakeEqvVecFromXSCH1(short cid,short foff,float _Complex **dict,float **dictPh,float *p,float *sd)
-{ // FFT X(w)exp(jwTD/NFFT) <--> x(t+TD) ==> we can estimate delay p[4]+p[3]*cf linear phase
-	float phd[63];
-	float _Complex eqv[64];
-	float _Complex evm[64];
-	signed char cf=0;
-	float *ptrPh=ffttmpPh+foff-31; //'zero DC' version of dictionary to generate 'zero DC' equalisation vector
-	float _Complex *ptr;
-	float _Complex wph[2]={0.0f}; // 0 wphc, 1 wphm
-	if( (foff<36) || (NFFTm37<foff) )
-	{
-		printf("Range Fail MakeEqvVecFromXSCH foff=%i\n",foff);
-		return;
-	}
-
-	phd[30]=ptrPh[30]-dictPh[cid][30]; // negative freq error
-	phd[32]=ptrPh[32]-dictPh[cid][32]; // positive freq error
-	p[3]=(phd[30]-phd[32])*0.5f; // time delay is linear phase shift
-	p[4]=(phd[30]+phd[32])*0.5f; // calculate constant phase offset - phErr - averaging usually more accurate.
-	sd[0]=(phd[30]-p[4])*(phd[30]-p[4]); // SIMD friendly
-	sd[1]=(phd[30]-p[4])*(phd[30]-p[4]);
-	sd[2]=(phd[30]-p[4])*(phd[30]-p[4]);
-	sd[0]+=(phd[32]-p[4])*(phd[32]-p[4]);
-	sd[1]+=(phd[32]-p[4])*(phd[32]-p[4]);
-	sd[2]+=(phd[32]-p[4])*(phd[32]-p[4]);
-	sd[0]-=float(2*PI2)*(phd[32]-p[4]);
-	sd[2]+=float(2*PI2)*(phd[32]-p[4]);
-	sd[0]+=float(PI2*PI2); // was +=(phd[32]-p[4]-PI2)*(phd[32]-p[4]-PI2);
-	sd[2]+=float(PI2*PI2); // was +==(phd[32]-p[4]+PI2)*(phd[32]-p[4]+PI2)
-	sd[0]*=0.5f;
-	sd[1]*=0.5f;
-	sd[2]*=0.5f;
-	if( (sd[1]>sd[0]) && (sd[2]>sd[0]) )
-		p[4]-=float(PI); // was =(phd[30]+phd[32]-PI2)*0.5;
-	if( (sd[1]>sd[2]) && (sd[2]>sd[0]) )
-		p[4]+=float(PI); // was =(phd[30]+phd[32]+PI2)*0.5;
-	//printf("foff=%i phm=%.3f phc=%.3f\n",foff,phm,phc);
-	//for( unsigned char ci=28;ci<34;ci++)
-	//	printf("ci=%i |%.3f| <%.3f |%.3f| <%.3f %.3f %.3f\n",ci,cabsf(ptr[ci]),cargf(ptr[ci]),cabsf(dict[cid][ci]),cargf(dict[cid][ci]),t[0],t[1]);
-		
-	// expect delay to be within +/-0.5 rad (+/-(10*2*PI)/128) if within CP, and phase err=0
-	p[3]+=float(PI)*((p[3]<float(-PI))-(float(PI)<p[3]));
-	p[4]+=float(PI)*((p[4]<float(-PI))-(float(PI)<p[4]));
-	wph[0]=cexpf(-I*p[4] ); // FAST WAY - reduces calc time from 65ms to 16ms
-	wph[1]=cexpf(-I*p[3] );
-	wph[0]*=rrms;
-	eqv[31]=wph[0]; // DC has zero linear phase shift
-	eqv[63]=1.0f; // not used
-	//printf("phm=%.3f phc=%.3f rrms=%.3f t[0]=%.3f t[1]=%.3f td=%.3f fdop=%.4f\n",phm,phc,rrms,t[0],t[1],td,fdop);
-	eqv[30]=wph[0]*wph[1]; // work from smallest phase shift to minimise cumulative error
-	for(cf=29;cf>=0;cf--) // DOES NOT VECTORIZE - history dependent
-		eqv[cf]=eqv[cf+1]*wph[1]; // calculate negative frequency linear phase shift
-//	wphm=cexpf(I*p[3] );
-	wph[1]=1.0f/wph[1]; // comparable to wphm=cexpf(I*phm ); ?
-	eqv[32]=wph[0]*wph[1]; // work from smallest phase shift to minimise cumulative error
-	for(cf=33;cf<63;cf++) // DOES NOT VECTORIZE - history dependent
-		eqv[cf]=eqv[cf-1]*wph[1]; // calculate negative frequency linear phase shift
-	p[3]*=-NFFTdPI2; // td - real, not integer.
-
-	p[2]=0.0f; // evm^2 total
-	ptr=ffttmp+foff-31; // start at active part of PSCH/SSCH,
-	for(cf=0;cf<63;cf++) // vectorized
-		evm[cf]=ptr[cf]*eqv[cf]; // copy part of fft data
-	for(cf=0;cf<63;cf++) // vectorized
-		evm[cf]-=dict[cid][cf]; // calc EVM (zero DC ver of Dict)
-	evm[31]=0.0;
-	for(cf=0;cf<63;cf++) // vectorized
-		evm[cf]*=conjf(evm[cf]); // convert to ||^2
-	for(cf=0;cf<63;cf++) // vectorized
-		p[2]+=crealf(evm[cf]);
-	p[2]*=r62;
-} // this is dependent on c2id code
-
 void LTEscan::MakeEqvVecFromXSCH1A(short cid,short foff,float _Complex **dict,float **dictPh,float *p,float *sd)
 { // FFT X(w)exp(jwTD/NFFT) <--> x(t+TD) ==> we can estimate delay p[4]+p[3]*cf linear phase
 	float phd[63];
@@ -219,78 +146,6 @@ void LTEscan::MakeEqvVecFromXSCH1A(short cid,short foff,float _Complex **dict,fl
 	p[2]*=r62;
 } // this is dependent on c2id code
 
-void LTEscan::MakeEqvVecFromXSCH1B(short cid,short foff,float _Complex **dict,float **dictPh,float *p,float *sd)
-{ // FFT X(w)exp(jwTD/NFFT) <--> x(t+TD) ==> we can estimate delay p[4]+p[3]*cf linear phase
-	float phd[63];
-	float _Complex eqv[64];
-	float _Complex evm[64];
-	signed char cf=0;
-	float *ptrPh=ffttmpPh+foff-31; //'zero DC' version of dictionary to generate 'zero DC' equalisation vector
-	float _Complex *ptr;
-	float _Complex wph[2]={0.0f}; // 0 wphc, 1 wphm
-	if( (foff<36) || (NFFTm37<foff) )
-	{
-		printf("Range Fail MakeEqvVecFromXSCH foff=%i\n",foff);
-		return;
-	} // more low amp detects than +/-6, but less than +/-4, EVM generally better.
-	phd[26]=ptrPh[26]-dictPh[cid][26]; // negative freq error [27,28,29,30], use +/-5th s/c instead of 1st s/c
-	phd[36]=ptrPh[36]-dictPh[cid][36]; // positive freq error [32,33,34,35], use +/-5th s/c instead of 1st s/c
-	p[3]=(phd[26]-phd[36])*0.1f; // time delay is linear phase shift
-	p[4]=(phd[26]+phd[36])*0.5f; // calculate constant phase offset - phErr - averaging usually more accurate.
-	sd[0]=(phd[26]-p[4])*(phd[26]-p[4]); // SIMD friendly
-	sd[1]=(phd[26]-p[4])*(phd[26]-p[4]);
-	sd[2]=(phd[26]-p[4])*(phd[26]-p[4]);
-	sd[0]+=(phd[36]-p[4])*(phd[36]-p[4]);
-	sd[1]+=(phd[36]-p[4])*(phd[36]-p[4]);
-	sd[2]+=(phd[36]-p[4])*(phd[36]-p[4]);
-	sd[0]-=float(2*PI2)*(phd[36]-p[4]);
-	sd[2]+=float(2*PI2)*(phd[36]-p[4]);
-	sd[0]+=float(PI2*PI2); // was +=(phd[32]-p[4]-PI2)*(phd[32]-p[4]-PI2);
-	sd[2]+=float(PI2*PI2); // was +==(phd[32]-p[4]+PI2)*(phd[32]-p[4]+PI2)
-	sd[0]*=0.5f;
-	sd[1]*=0.5f;
-	sd[2]*=0.5f;
-	if( (sd[1]>sd[0]) && (sd[2]>sd[0]) )
-		p[4]-=float(PI); // was =(phd[30]+phd[32]-PI2)*0.5;
-	if( (sd[1]>sd[2]) && (sd[2]>sd[0]) )
-		p[4]+=float(PI); // was =(phd[30]+phd[32]+PI2)*0.5;
-	//printf("foff=%i phm=%.3f phc=%.3f\n",foff,phm,phc);
-	//for( unsigned char ci=28;ci<34;ci++)
-	//	printf("ci=%i |%.3f| <%.3f |%.3f| <%.3f %.3f %.3f\n",ci,cabsf(ptr[ci]),cargf(ptr[ci]),cabsf(dict[cid][ci]),cargf(dict[cid][ci]),t[0],t[1]);
-		
-	// expect delay to be within +/-0.5 rad (+/-(10*2*PI)/128) if within CP, and phase err=0
-	p[3]+=float(PI)*((p[3]<float(-PI))-(float(PI)<p[3]));
-	p[4]+=float(PI)*((p[4]<float(-PI))-(float(PI)<p[4]));
-	wph[0]=cexpf(-I*p[4] ); // FAST WAY - reduces calc time from 65ms to 16ms
-	wph[1]=cexpf(-I*p[3] );
-	wph[0]*=rrms;
-	eqv[31]=wph[0]; // DC has zero linear phase shift
-	eqv[63]=1.0f; // not used
-	//printf("phm=%.3f phc=%.3f rrms=%.3f t[0]=%.3f t[1]=%.3f td=%.3f fdop=%.4f\n",phm,phc,rrms,t[0],t[1],td,fdop);
-	eqv[30]=wph[0]*wph[1]; // work from smallest phase shift to minimise cumulative error
-	for(cf=29;cf>=0;cf--) // DOES NOT VECTORIZE - history dependent
-		eqv[cf]=eqv[cf+1]*wph[1]; // calculate negative frequency linear phase shift
-//	wphm=cexpf(I*p[3] );
-	wph[1]=1.0f/wph[1]; // comparable to wphm=cexpf(I*phm ); ?
-	eqv[32]=wph[0]*wph[1]; // work from smallest phase shift to minimise cumulative error
-	for(cf=33;cf<63;cf++) // DOES NOT VECTORIZE - history dependent
-		eqv[cf]=eqv[cf-1]*wph[1]; // calculate negative frequency linear phase shift
-	p[3]*=-NFFTdPI2; // td - real, not integer.
-
-	p[2]=0.0f; // evm^2 total
-	ptr=ffttmp+foff-31; // start at active part of PSCH/SSCH,
-	for(cf=0;cf<63;cf++) // vectorized
-		evm[cf]=ptr[cf]*eqv[cf]; // copy part of fft data
-	for(cf=0;cf<63;cf++) // vectorized
-		evm[cf]-=dict[cid][cf]; // calc EVM (zero DC ver of Dict)
-	evm[31]=0.0;
-	for(cf=0;cf<63;cf++) // vectorized
-		evm[cf]*=conjf(evm[cf]); // convert to ||^2
-	for(cf=0;cf<63;cf++) // vectorized
-		p[2]+=crealf(evm[cf]);
-	p[2]*=r62;
-} // this is dependent on c2id code
-
 // if we have an arbitrary window in time, we might see only part of the Sync, leading to SNR degradation.
 // by using all subcarriers we can eliminate effect of noise
 void LTEscan::MakeEqvVecFromXSCH2(short cid,short foff,float _Complex **dict,float **dictPh,float *p,float *sd)
@@ -314,16 +169,27 @@ void LTEscan::MakeEqvVecFromXSCH2(short cid,short foff,float _Complex **dict,flo
 		phd[cf]=ptrPh[cf]-dictPh[cid][cf];// note using 'zero DC' version of dictionary
 	for(cf=0;cf<63;cf++) // vectorized
 		phd[cf]+=float(PI2)*((phd[cf]<float(-PI))-(float(PI)<phd[cf]));	
-	p[4]=(phd[30]+phd[32])*0.5f; // normally average is more accurate
+//	p[4]=(phd[30]+phd[32])*0.5f; // normally average is more accurate
+	p[4]=(phd[27]+phd[35])*0.5f; // calculate constant phase offset - phErr - averaging usually more accurate.
+
 	// but if phase flip occurs, we need to check standard deviation to find best fit
-	sd[0]=(phd[30]-p[4])*(phd[30]-p[4]); // SIMD friendly
-	sd[1]=(phd[30]-p[4])*(phd[30]-p[4]);
-	sd[2]=(phd[30]-p[4])*(phd[30]-p[4]);
-	sd[0]+=(phd[32]-p[4])*(phd[32]-p[4]);
-	sd[1]+=(phd[32]-p[4])*(phd[32]-p[4]);
-	sd[2]+=(phd[32]-p[4])*(phd[32]-p[4]);
-	sd[0]-=float(2*PI2)*(phd[32]-p[4]);
-	sd[2]+=float(2*PI2)*(phd[32]-p[4]);
+//	sd[0]=(phd[30]-p[4])*(phd[30]-p[4]); // SIMD friendly
+//	sd[1]=(phd[30]-p[4])*(phd[30]-p[4]);
+//	sd[2]=(phd[30]-p[4])*(phd[30]-p[4]);
+//	sd[0]+=(phd[32]-p[4])*(phd[32]-p[4]);
+//	sd[1]+=(phd[32]-p[4])*(phd[32]-p[4]);
+//	sd[2]+=(phd[32]-p[4])*(phd[32]-p[4]);
+//	sd[0]-=float(2*PI2)*(phd[32]-p[4]);
+//	sd[2]+=float(2*PI2)*(phd[32]-p[4]);
+	// but if phase flip occurs, we need to check standard deviation to find best fit
+	sd[0]=(phd[27]-p[4])*(phd[27]-p[4]); // SIMD friendly
+	sd[1]=(phd[27]-p[4])*(phd[27]-p[4]);
+	sd[2]=(phd[27]-p[4])*(phd[27]-p[4]);
+	sd[0]+=(phd[35]-p[4])*(phd[35]-p[4]);
+	sd[1]+=(phd[35]-p[4])*(phd[35]-p[4]);
+	sd[2]+=(phd[35]-p[4])*(phd[35]-p[4]);
+	sd[0]-=float(2*PI2)*(phd[35]-p[4]);
+	sd[2]+=float(2*PI2)*(phd[35]-p[4]);
 	sd[0]+=float(PI2*PI2); // was +=(phd[32]-p[4]-PI2)*(phd[32]-p[4]-PI2);
 	sd[2]+=float(PI2*PI2); // was +==(phd[32]-p[4]+PI2)*(phd[32]-p[4]+PI2)
 	sd[0]*=0.5f;
@@ -1123,25 +989,9 @@ void LTEscan::FindPBCH( void )
 	CalcRMS10( foff,p ); // --> snr
 	rrms=tmpCellLog.LoopGetRrmsPSCH(0);
 	mytref = clock();
-	MakeEqvVecFromXSCH1(N2ID,foff,dictPSCHzdc,dictPSCHzdcPh,p,sd);
-	mytref2=clock();
-	printf("v1 p[2]=%.6f p[3]=%.3f p[4]=%.3f p[5]=%.6f %.3fms\n",p[2],p[3],p[4],p[5],((double)(mytref2-mytref))/CLOCKS_PER_mSEC);
-	Blk2FFT2( offset,fftFIdxOff,CalcSparseIdx( frm,ns,(5+NCP),NCP ) ); // approx 300us, NFFT 2048
-	CalcRMS62( foff,p ); // --> rms
-	CalcRMS10( foff,p ); // --> snr
-	rrms=tmpCellLog.LoopGetRrmsPSCH(0);
-	mytref = clock();
 	MakeEqvVecFromXSCH1A(N2ID,foff,dictPSCHzdc,dictPSCHzdcPh,p,sd);
 	mytref2=clock();
 	printf("v1A p[2]=%.6f p[3]=%.3f p[4]=%.3f p[5]=%.6f %.3fms\n",p[2],p[3],p[4],p[5],((double)(mytref2-mytref))/CLOCKS_PER_mSEC);
-	Blk2FFT2( offset,fftFIdxOff,CalcSparseIdx( frm,ns,(5+NCP),NCP ) ); // approx 300us, NFFT 2048
-	CalcRMS62( foff,p ); // --> rms
-	CalcRMS10( foff,p ); // --> snr
-	rrms=tmpCellLog.LoopGetRrmsPSCH(0);
-	mytref = clock();
-	MakeEqvVecFromXSCH1B(N2ID,foff,dictPSCHzdc,dictPSCHzdcPh,p,sd);
-	mytref2=clock();
-	printf("v1B p[2]=%.6f p[3]=%.3f p[4]=%.3f p[5]=%.6f %.3fms\n",p[2],p[3],p[4],p[5],((double)(mytref2-mytref))/CLOCKS_PER_mSEC);
 	Blk2FFT2( offset,fftFIdxOff,CalcSparseIdx( frm,ns,(5+NCP),NCP ) ); // approx 300us, NFFT 2048
 	CalcRMS62( foff,p ); // --> rms
 	CalcRMS10( foff,p ); // --> snr
@@ -1252,7 +1102,7 @@ signed char LTEscan::FastPBCHevm( int toff,unsigned char frm,unsigned char evmId
 		EqualiseData( toff,foff,fftFIdxOff,NCP,frm,1,csym,td,phErr,rrms,data,1 );
 		//for(cf=0;cf<73;cf++)
 		//	data2[csym*73+cf]=data[cf];
-		memcpy(data2ptr,data,sizeof(data2ptr)*73);
+		memcpy(data2ptr,data,sizeof(float _Complex)*73);
 		data2ptr+=73;
 		phErr+=dphErrdt;
 		phErr+=float(PI2)*((phErr<float(-PI))-(phErr>float(PI)));	

@@ -93,9 +93,9 @@ signed char LTEscan::DemodPBCH( float _Complex *eqData,unsigned char NCP,short N
 { // pbch --> d --> pbchData,evmPBCH
 	unsigned short vshift=(NcellID % 6); // cell specific frequency shift of reference pilots
 	short refCnt=0;
-	// d[] usually 252 for NCP=0, 264 for NCP=1 => E can be larger for better SNR?
-	unsigned char E=192; // number of encoded bits - defined by the Mux size 3x32 rows. (min data 3x40=120)
-	unsigned char D=96; // number of QPSK symbols - can be lower if P is large
+	// d[] usually 252 for NCP=0, 264 for NCP=1 => E can be larger for better SNR? NCP=1 D=240, NCP=0 D=216
+	unsigned char D=2*96; // number of QPSK symbols - was 96 (2*96=192 <216)
+	unsigned char E=2*D; // number of encoded bits - defined by the Mux size 3x32 rows. (min data 3x40=120)
 	float evmt=0.0;
 	unsigned char csym=0;
 	short cf=0;
@@ -108,7 +108,7 @@ signed char LTEscan::DemodPBCH( float _Complex *eqData,unsigned char NCP,short N
 	float _Complex fac=1.0f;
 
 	pbchSymbCnt=0;
-	for(csym=0;csym<3;csym++)  // calculation independent of P antennas
+	for(csym=0;csym<4;csym++)  // calculation independent of P antennas
 	{ // always 4 OFDM symbols, regardless of NCP.  Pilots change with P,NCP
 		if((csym<2) || ((csym==3)&&(NCP==0)) || ((P==4)&&(NCP==0)) ) // Assume P=={1,2}
 		{	
@@ -135,6 +135,7 @@ signed char LTEscan::DemodPBCH( float _Complex *eqData,unsigned char NCP,short N
 				d1[pbchSymbCnt++]=eqData[csym*73+cf]; // ffttmp includes DC, so 36+1
 		}
 	}
+	//printf("pbchSymbCnt=%i refCnt=%i\n",pbchSymbCnt,refCnt); // P=2 NCP=1 pbchSymbCnt=240 refCnt=48,NCP=0 216,72
 
 	if( vshift<3 ) // calculation independent of P antennas
 	{
@@ -185,8 +186,8 @@ signed char LTEscan::DemodPBCH( float _Complex *eqData,unsigned char NCP,short N
 
 		for(csym=0;csym<D;csym++) // Soft QPSK decoder - vectorized
 		{
-			ee[csym*2]=-64*crealf(d[csym]); // msb
-			ee[csym*2+1]=-64*cimagf(d[csym]); // lsb
+			ee[csym*2]=(signed char)(-64*crealf(d[csym])); // msb
+			ee[csym*2+1]=(signed char)(-64*cimagf(d[csym])); // lsb
 		}
 		for(csym=0;csym<D;csym++) // Fast EVM calculator - based on phase angle only
 			evm[csym]=(cargf(d[csym])-qpskPh[2*(ee[csym*2]>0)+(ee[csym*2+1]>0)]);
@@ -206,7 +207,7 @@ signed char LTEscan::DemodPBCH( float _Complex *eqData,unsigned char NCP,short N
 		//		printf("%3i %6.3f %6.3f %6.3f %6.3f %6.3f %6.3f %3i %3i\n",csym,cabsf(eqData[csym]),cargf(eqData[csym]),crealf(d[csym]),cimagf(d[csym]),cargf(d[csym]),evm[csym],ee[csym*2],ee[csym*2+1]);
 		//	printf("PBCH EVM=%.2f%% %i %i\n",100*sqrt(evmt),symbCnt,D);
 		SXORvec(ee,cprsPBCH,E); 
-		ViterbiRateDec( ee,192,pbcha,40,rv); // 40=>2 rows of 32, E>=3*32*rows, rv has no effect
+		ViterbiRateDec( ee,E,pbcha,40,rv); // 40=>2 rows of 32, E>=3*32*rows, rv has no effect
 		for( ci=0; ci<16; ci++ ) // vectorizes - restore parity bits
 			pbcha[24+ci]^=pbchCRCmskAnt[Pant[cp]][ci];
 		if( gCRC16( pbcha,40 )==0 ) // check CRC16
@@ -259,10 +260,10 @@ void LTEscan::DespreadPilots(void)
 	unsigned char cf;
 	for(cf=0;cf<12;cf++)
 	{ 
-		pilotsDespread[cf*2]=pilotsRaw[cf*2]*conj(pilotVal[cf]);
-		pilotsDespread[cf*2+1]=pilotsRaw[cf*2+1]*conj(pilotVal[cf]);
-		pilotsDespread[cf*2+24]=pilotsRaw[cf*2+24]*conj(pilotVal[cf]);
-		pilotsDespread[cf*2+25]=pilotsRaw[cf*2+25]*conj(pilotVal[cf]);
+		pilotsDespread[cf*2]=pilotsRaw[cf*2]*conjf(pilotVal[cf]);
+		pilotsDespread[cf*2+1]=pilotsRaw[cf*2+1]*conjf(pilotVal[cf]);
+		pilotsDespread[cf*2+24]=pilotsRaw[cf*2+24]*conjf(pilotVal[cf]);
+		pilotsDespread[cf*2+25]=pilotsRaw[cf*2+25]*conjf(pilotVal[cf]);
 	}
 }
 

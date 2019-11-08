@@ -19,7 +19,7 @@ limesuite
 
 Turbofec and LimeSuite gits should be cloned into the home directory.
 
-To obtain limesuite, follow instructions 4	on https://wiki.myriadrf.org/Lime_Suite
+To obtain limesuite, follow instructions on https://wiki.myriadrf.org/Lime_Suite
 If you choose the repository version of LimeSuite, be sure to also include liblimesuite-dev 
 
 To obtain turbofec
