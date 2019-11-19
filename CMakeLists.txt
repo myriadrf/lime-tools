@@ -44,6 +44,7 @@ add_executable(LimeStream limestream/src/LimeStream.cpp)
 target_link_libraries(LimeStream m ${LIMESUITE_LIBRARIES})
 install(TARGETS LimeStream DESTINATION bin)
 
+add_subdirectory(LTEscan)
 
 ########################################################################
 # uninstall target
