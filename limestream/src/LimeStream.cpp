@@ -653,12 +653,13 @@ int main(int argc, char **argv)
         for (int i = 0; i < txcount; i++)
         {
             LMS_StopStream(&tx_stream[i]);            // stream is stopped
+            LMS_EnableChannel(device, LMS_CH_TX, i, false); //disable Tx output
             LMS_DestroyStream(device, &tx_stream[i]); //stream can no longer be used
             free(txbuffer[i]);
         }
         fclose(fd_tx);
     }
-    
+
     //Close device
     if(device!=NULL)
         LMS_Close(device);
