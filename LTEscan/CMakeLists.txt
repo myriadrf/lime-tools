@@ -1,11 +1,11 @@
 find_package(PkgConfig REQUIRED)
-pkg_search_module(TURBOFEC REQUIRED turbofec)
+pkg_search_module(TURBOFEC turbofec)
 if (TURBOFEC_FOUND)
 message(STATUS "TURBOFEC LIBRARY: " ${TURBOFEC_LIBRARIES})
 message(STATUS "TURBOFEC INCLUDE DIR: " ${TURBOFEC_INCLUDE_DIR})
 endif()
 
-find_package(Sensors REQUIRED)
+find_package(Sensors)
 if (SENSORS_FOUND)
 message(STATUS "SENSORS LIBRARY: " ${SENSORS_LIBRARY})
 message(STATUS "SENSORS INCLUDE DIR: " ${SENSORS_INCLUDE_DIR})
