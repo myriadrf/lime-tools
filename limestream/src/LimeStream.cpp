@@ -35,6 +35,7 @@ float gain = 0.8;
 unsigned int buffer_size = 1024 * 10;
 double postpone_emitting_sec = 0.5;
 unsigned int channel = 0;
+unsigned long int samplelimit = 0;
 
 int mode = -1; // Mode Rx=0,Tx=1,RxTx=2
 int buffer_latency = 500;
@@ -80,6 +81,7 @@ static void usage()
            "  -d <Device index> set the Device index if multiple devices\n"
            "  -p <calibration file> : use a Profile calibration file \n"
            "  -c <calibration file> : generate a profile Calibration file \n"
+           "  -C <n> : Stop RX stream after n samples\n"
            "  -R : Repeat file (only on tx mode)\n" 
            "  -v : Verbose , print info and statistics \n");
 }
@@ -174,7 +176,7 @@ int main(int argc, char **argv)
     int opt;
     bool result = false;
 
-    while ((opt = getopt(argc, argv, "f:s:g:r:t:b:d:p:c:vRh?")) != EOF)
+    while ((opt = getopt(argc, argv, "f:s:g:r:t:b:d:p:c:C:vRh?")) != EOF)
     {
         result = true;
         switch (opt)
@@ -209,6 +211,9 @@ int main(int argc, char **argv)
         case 'c':
             calibrationfilename = optarg;
             generatecalibfile = true;
+            break;
+        case 'C':
+            samplelimit = atol(optarg);
             break;
         case 'v':
             verbose = true;
@@ -561,6 +566,7 @@ int main(int argc, char **argv)
         tx_isapipe = (fseek(fd_tx, 0, SEEK_CUR) < 0); //Dirty trick to see if it is a pipe or not
 
     int samplecount = 0;
+    int total_nb_samples_written = 0;
     lms_stream_status_t status;
     
     while (!want_quit)
@@ -572,13 +578,25 @@ int main(int argc, char **argv)
             samplecount += nb_samples_received;
             if (nb_samples_received != rxfileburst)
             {
-                fprintf(stderr, "Receiving timeout, only %d/%d bytes received\n", nb_samples_received, rxfileburst);
+                fprintf(stderr, "Receiving timeout, only %d/%d samples received\n", nb_samples_received, rxfileburst);
             }
+            if (samplecount > 0 && (long unsigned)samplecount > samplelimit)
+            {
+                fprintf(stderr, "Reached sample limit\n");
+                int remaining_samples = samplelimit - total_nb_samples_written;
+                if (remaining_samples > 0) {
+                    fwrite(rxbuffer[i], sizeof(short)*2, remaining_samples, fd_rx);
+                    want_quit = true;
+                    break;
+                }
+            }
+
             int nb_samples_written = fwrite(rxbuffer[i], sizeof(short)*2, rxfileburst, fd_rx);
+            total_nb_samples_written += nb_samples_written;
             if (nb_samples_written != rxfileburst)
             {
                 // Pipe or regular file : not enough space, quit immediatelly
-                fprintf(stderr, "Write only %d bytes on output\n", nb_samples_written);
+                fprintf(stderr, "Write only %d samples on output\n", nb_samples_written);
                 want_quit = true;
                 break;
             }
