@@ -176,7 +176,7 @@ int main(int argc, char **argv)
     int opt;
     bool result = false;
 
-    while ((opt = getopt(argc, argv, "f:s:g:r:t:b:d:p:c:vRh?")) != EOF)
+    while ((opt = getopt(argc, argv, "f:s:g:r:t:b:d:p:c:C:vRh?")) != EOF)
     {
         result = true;
         switch (opt)
